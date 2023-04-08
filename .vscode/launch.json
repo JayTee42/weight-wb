@@ -1,0 +1,64 @@
+{
+    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'weight-wb'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=weight-wb"
+                ],
+                "filter": {
+                    "name": "weight-wb",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'weight-wb'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=weight-wb",
+                    "--package=weight-wb"
+                ],
+                "filter": {
+                    "name": "weight-wb",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'weight-wb'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=weight-wb",
+                    "--package=weight-wb"
+                ],
+                "filter": {
+                    "name": "weight-wb",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
