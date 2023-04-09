@@ -1,6 +1,7 @@
 use super::{model::Model, Printer};
 
 use std::fmt::Display;
+use std::time::Duration;
 
 /// USB Vendor ID for Brother QL printers
 const VENDOR_ID: u16 = 0x04f9;
@@ -8,6 +9,9 @@ const VENDOR_ID: u16 = 0x04f9;
 /// Some printers can be put into mass storage mode.
 /// This means they get a different USB product ID and we cannot use them.
 const MASS_STORAGE_PRODUCT_IDS: &[u16] = &[0x2049];
+
+/// Timeout for all IO functions
+const IO_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
@@ -159,6 +163,7 @@ impl Printer {
             in_addr,
             out_addr,
             serial_number,
+            print_config: Default::default(),
         };
 
         // Clear outstanding jobs by sending a bunch of "invalid" commands.
@@ -167,5 +172,32 @@ impl Printer {
         printer.write(&[0x1b, 0x40])?;
 
         Ok(printer)
+    }
+
+    pub fn model(&self) -> Model {
+        self.model
+    }
+
+    pub fn serial_number(&self) -> &str {
+        &self.serial_number
+    }
+
+    pub(super) fn read(&self, data: &mut [u8]) -> Result<usize, rusb::Error> {
+        self.handle.read_bulk(self.in_addr, data, IO_TIMEOUT)
+    }
+
+    pub(super) fn write(&self, data: &[u8]) -> Result<(), rusb::Error> {
+        let written_bytes = self.handle.write_bulk(self.out_addr, data, IO_TIMEOUT)?;
+
+        // Can this happen at all ... ? Never seen it ...
+        if written_bytes != data.len() {
+            eprintln!(
+                "Number of written bytes does not equal the input slice (expected {}, got {}).",
+                data.len(),
+                written_bytes
+            );
+        }
+
+        Ok(())
     }
 }

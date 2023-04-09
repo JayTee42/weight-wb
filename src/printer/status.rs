@@ -1,4 +1,4 @@
-use super::{Label, Printer};
+use super::{Label, LabelType, Printer};
 
 use std::fmt::Display;
 
@@ -36,55 +36,26 @@ impl From<rusb::Error> for Error {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, PartialEq, Eq)]
-    struct ErrorFlags: u16 {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct ErrorFlags: u16 {
         // Error info 1 (LSB)
         const NO_MEDIA = 0b0000_0000_0000_0001;
         const END_OF_MEDIA = 0b0000_0000_0000_0010;
         const TAPE_CUTTER_JAM = 0b0000_0000_0000_0100;
         const MAIN_UNIT_IN_USE = 0b0000_0000_0001_0000;
+        const TURNED_OFF = 0b0000_0000_0010_0000;
+        const HIGH_VOLTAGE_ADAPTER = 0b0000_0000_0100_0000;
         const FAN_NOT_WORKING = 0b0000_0000_1000_0000;
 
         // Error info 2 (MSB)
+        const REPLACE_MEDIA_ERROR = 0b0000_0001_0000_0000;
+        const EXPANSION_BUFFER_FULL = 0b0000_0010_0000_0000;
         const TRANSMISSION_ERROR = 0b0000_0100_0000_0000;
-        const COVER_OPENED = 0b0001_0000_0000_0000;
+        const COMMUNICATION_BUFFER_FULL = 0b0000_1000_0000_0000;
+        const COVER_OPEN = 0b0001_0000_0000_0000;
+        const CANCEL_KEY = 0b0010_0000_0000_0000;
         const CANNOT_FEED = 0b0100_0000_0000_0000;
         const SYSTEM_ERROR = 0b1000_0000_0000_0000;
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub(super) enum Media {
-    Continuous { width: u8 },
-    DieCut { width: u8, length: u8 },
-}
-
-impl Media {
-    fn from_bytes(ty: u8, width: u8, length: u8) -> Option<Self> {
-        use Media::*;
-
-        match ty {
-            0x0a => {
-                if length != 0 {
-                    eprintln!(
-                        "Length for continuous media should be 0 mm, but is {} mm.",
-                        length
-                    );
-                }
-
-                Some(Continuous { width })
-            }
-
-            0x0b => Some(DieCut { width, length }),
-
-            other => {
-                if other != 0x00 {
-                    eprintln!("Unknown media type: {:#04x}", other);
-                }
-
-                None
-            }
-        }
     }
 }
 
@@ -152,12 +123,13 @@ impl Notification {
     }
 }
 
+#[allow(dead_code)]
 pub(super) struct Status {
-    error_flags: ErrorFlags,
-    label: Option<Label>,
-    status_type: StatusType,
-    phase_type: PhaseType,
-    notification: Option<Notification>,
+    pub error_flags: ErrorFlags,
+    pub label: Option<Label>,
+    pub status_type: StatusType,
+    pub phase_type: PhaseType,
+    pub notification: Option<Notification>,
 }
 
 impl Printer {
@@ -184,9 +156,9 @@ impl Printer {
             return Err(Error::WrongResponseSizeHeader(data[1]));
         }
 
-        // Extract the media and map it to a label.
-        let label = if let Some(media) = Media::from_bytes(data[11], data[10], data[17]) {
-            Some(Label::try_from((self.model, media)).map_err(|err| Error::InvalidLabel(err))?)
+        // Extract the label type and map it to a label.
+        let label = if let Some(ty) = LabelType::from_bytes(data[11], data[10], data[17]) {
+            Some(Label::try_from((self.model, ty)).map_err(|err| Error::InvalidLabel(err))?)
         } else {
             None
         };

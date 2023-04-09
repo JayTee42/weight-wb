@@ -56,3 +56,22 @@ impl TryFrom<u16> for Model {
         })
     }
 }
+
+impl Model {
+    pub(super) fn line_width(&self) -> u8 {
+        use Model::*;
+
+        match self {
+            BrotherQL500 => 90,
+            BrotherQL550 => 90,
+            BrotherQL560 => 90,
+            BrotherQL570 => 90,
+            BrotherQL580N => 90,
+            BrotherQL600 => 90,
+            BrotherQL650TD => 90,
+            BrotherQL700 => 90,
+            BrotherQL1050 => 162,
+            BrotherQL1060N => 162,
+        }
+    }
+}

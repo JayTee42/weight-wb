@@ -1,32 +1,78 @@
-use super::{status::Media, Model};
+use super::{Model, Printer, StatusError};
 
-pub struct Label {
-    printable_dots_width: u32,
-    printable_dots_height: Option<u32>,
-    margin_dots_right: u32,
-    feed_dots_height: u32,
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum LabelType {
+    Continuous { width: u8 },
+    DieCut { width: u8, length: u8 },
 }
 
-impl TryFrom<(Model, Media)> for Label {
+impl LabelType {
+    pub(super) fn from_bytes(ty: u8, width: u8, length: u8) -> Option<Self> {
+        use LabelType::*;
+
+        match ty {
+            0x0a => {
+                if length != 0 {
+                    eprintln!(
+                        "Length for continuous label should be 0 mm, but is {} mm.",
+                        length
+                    );
+                }
+
+                Some(Continuous { width })
+            }
+
+            0x0b => Some(DieCut { width, length }),
+
+            other => {
+                if other != 0x00 {
+                    eprintln!("Unknown label type: {:#04x}", other);
+                }
+
+                None
+            }
+        }
+    }
+
+    pub(super) fn to_bytes(&self) -> (u8, u8, u8) {
+        use LabelType::*;
+
+        match *self {
+            Continuous { width } => (0x0a, width, 0x00),
+            DieCut { width, length } => (0x0b, width, length),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Label {
+    pub ty: LabelType,
+    pub printable_dots_width: u32,
+    pub printable_dots_length: Option<u32>,
+    pub(super) margin_dots_right: u32,
+    pub(super) margin_dots_length: u16,
+}
+
+impl TryFrom<(Model, LabelType)> for Label {
     type Error = String;
 
-    fn try_from((model, media): (Model, Media)) -> Result<Self, Self::Error> {
-        use Media::*;
+    fn try_from((model, ty): (Model, LabelType)) -> Result<Self, Self::Error> {
+        use LabelType::*;
 
         // Printable dots: Columns 3 and 4 from tables in section 3.2.2.
         // Margin dots: Columns "Number of Pins for Right Margin" from tables in section 3.2.5.
-        // Feed dots: Table in section 3.2.3.
-        let (printable_dots_width, printable_dots_height);
+        // Margin dots: Table in section 3.2.3. (aka feed margin)
+        let (printable_dots_width, printable_dots_length);
         let margin_dots_right;
-        let feed_dots_height;
+        let margin_dots_length;
 
         // "Wide" printers have more pins and therefore require different margins.
         let is_wide = [Model::BrotherQL1050, Model::BrotherQL1060N].contains(&model);
 
-        match media {
+        match ty {
             Continuous { width } => {
-                printable_dots_height = None;
-                feed_dots_height = 35;
+                printable_dots_length = None;
+                margin_dots_length = 35;
 
                 (printable_dots_width, margin_dots_right) = match width {
                     12 => (106, if is_wide { 74 } else { 29 }),
@@ -47,12 +93,12 @@ impl TryFrom<(Model, Media)> for Label {
             }
 
             DieCut { width, length } => {
-                feed_dots_height = 0;
+                margin_dots_length = 0;
 
                 // TODO: Dia (no idea about that, hehe ...)
                 (
                     printable_dots_width,
-                    printable_dots_height,
+                    printable_dots_length,
                     margin_dots_right,
                 ) = match (width, length) {
                     (17, 54) => (165, Some(566), if is_wide { 44 } else { 0 }),
@@ -78,10 +124,17 @@ impl TryFrom<(Model, Media)> for Label {
         }
 
         Ok(Label {
+            ty,
             printable_dots_width,
-            printable_dots_height,
+            printable_dots_length,
             margin_dots_right,
-            feed_dots_height,
+            margin_dots_length,
         })
+    }
+}
+
+impl Printer {
+    pub fn current_label(&self) -> Result<Option<Label>, StatusError> {
+        Ok(self.request_status()?.label)
     }
 }
