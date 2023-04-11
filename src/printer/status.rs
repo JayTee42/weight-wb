@@ -2,8 +2,6 @@ use super::{Label, LabelType, Printer};
 
 use std::fmt::Display;
 
-use bitflags::bitflags;
-
 #[derive(Debug, Clone)]
 pub enum Error {
     USBError(rusb::Error),

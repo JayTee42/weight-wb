@@ -3,8 +3,6 @@ use super::{Printer, StatusError, StatusErrorFlags};
 use std::fmt::Display;
 use std::mem;
 
-use bitflags::bitflags;
-
 #[derive(Debug, Clone)]
 pub enum Error {
     USBError(rusb::Error),
