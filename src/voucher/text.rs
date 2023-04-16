@@ -1,95 +1,323 @@
-use super::Layout;
+use super::{Alignment, Builder as VoucherBuilder, Component as VoucherComponent, Spacing};
 
-bitflags! {
-    /// The fonts for labels can be enriched with different styles.
-    /// Those can even be combined.
-    #[derive(Copy, Clone)]
-    pub struct FontStyle: u8 {
-        const BOLD = 0b0000_0001;
-        const ITALIC = 0b0000_0010;
+use std::ops::Range;
+
+use cosmic_text::{
+    Attrs, AttrsList, BufferLine, Color, Family, FontSystem, Style, SwashCache as RasterizerCache,
+    Weight, Wrap,
+};
+use image::GrayImage;
+
+pub(super) struct Store {
+    font_system: FontSystem,
+    text_lines: Vec<String>,
+    buffer_lines: Vec<BufferLine>,
+    rasterizer_cache: RasterizerCache,
+}
+
+impl Store {
+    pub fn new() -> Self {
+        Self {
+            font_system: FontSystem::new(),
+            text_lines: Vec::new(),
+            buffer_lines: Vec::new(),
+            rasterizer_cache: RasterizerCache::new(),
+        }
     }
 }
 
-pub struct Cache {
-    current_glyphs: Vec<(rusttype::GlyphId, f32)>,
-    glyphs: Vec<(rusttype::GlyphId, f32)>,
-    lines: Vec<(usize, f32)>,
+pub struct Builder {
+    /// The underlying voucher builder
+    voucher: VoucherBuilder,
+
+    /// The spacing to apply to this component
+    spacing: Spacing,
+
+    /// The alignment to apply to this component
+    alignment: Alignment,
+
+    /// The name of the font family
+    font_family: Option<String>,
+
+    /// The font size (pixels)
+    font_size: f32,
+
+    /// The line height, as defined in CSS (aka a factor that is multiplied on top of the font size).
+    /// Typical values are between 1.0 and 1.3.
+    line_height: f32,
+
+    /// Do we render bold text?
+    bold: bool,
+
+    /// Do we render italic text?
+    italic: bool,
 }
 
-struct Context<'cache, 'font> {
-    current_glyphs: &'cache mut Vec<(rusttype::GlyphId, f32)>,
-    glyphs: &'cache mut Vec<(rusttype::GlyphId, f32)>,
-    lines: &'cache mut Vec<(usize, f32)>,
-    font: &'font rusttype::Font<'font>,
-}
+impl Builder {
+    fn new(mut voucher: VoucherBuilder, text: &str) -> Self {
+        // Break the text into lines and store them temporarily.
+        // We do not render from this data!
+        // The vector in the cache just prevents some additional memory allocations.
+        voucher.text_store.text_lines.clear();
 
-impl<'cache, 'font> Context<'cache, 'font> {
-    fn new(cache: &'cache mut Cache, font: &'font rusttype::Font) -> Self {
+        voucher
+            .text_store
+            .text_lines
+            .extend(text.lines().map(String::from));
+
         Self {
-            current_glyphs: &mut cache.current_glyphs,
-            glyphs: &mut cache.glyphs,
-            lines: &mut cache.lines,
-            font,
+            voucher,
+            spacing: Default::default(),
+            alignment: Alignment::Left,
+            font_family: None,
+            font_size: 12.0,
+            line_height: 1.3,
+            bold: false,
+            italic: false,
         }
     }
 
-    fn push_char(&mut self, c: char) {}
+    pub fn spacing(mut self, spacing: Spacing) -> Self {
+        self.spacing = spacing;
+        self
+    }
+
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
+    pub fn font_family<S: ToString>(mut self, font_family: S) -> Self {
+        self.font_family = Some(font_family.to_string());
+        self
+    }
+
+    pub fn default_font_family(mut self) -> Self {
+        self.font_family = None;
+        self
+    }
+
+    pub fn font_size(mut self, font_size: f32) -> Self {
+        assert!(font_size >= 0.0, "Font size must be non-negative.");
+        self.font_size = font_size;
+
+        self
+    }
+
+    pub fn line_height(mut self, line_height: f32) -> Self {
+        assert!(line_height >= 0.0, "Line height must be non-negative.");
+        self.line_height = line_height;
+
+        self
+    }
+
+    pub fn bold(mut self, bold: bool) -> Self {
+        self.bold = bold;
+        self
+    }
+
+    pub fn italic(mut self, italic: bool) -> Self {
+        self.italic = italic;
+        self
+    }
+
+    pub fn finalize_text_component(mut self) -> VoucherBuilder {
+        // Return early if there is no text.
+        if self.voucher.text_store.text_lines.is_empty() {
+            return self.voucher;
+        }
+
+        // Calculate the available line width and line height.
+        // If one of them is degenerated, we return early.
+        let line_width = (self.voucher.width as f32) - self.spacing.horz();
+        let line_height = self.line_height * self.font_size;
+
+        if (line_width <= 0.0) || (line_height <= 0.0) {
+            return self.voucher;
+        }
+
+        // Build the attributes.
+        let attrs = Attrs::new()
+            .family(if let Some(font_family) = self.font_family.as_ref() {
+                Family::Name(font_family)
+            } else {
+                Family::SansSerif
+            })
+            .weight(if self.bold {
+                Weight::BOLD
+            } else {
+                Weight::NORMAL
+            })
+            .style(if self.italic {
+                Style::Italic
+            } else {
+                Style::Normal
+            });
+
+        // Walk the lines of the component.
+        let buffer_lines_offset = self.voucher.text_store.buffer_lines.len();
+        let buffer_lines_count = self.voucher.text_store.text_lines.len();
+        let mut layout_lines_count = 0;
+
+        for line in self.voucher.text_store.text_lines.drain(..) {
+            // Perform the shaping and layout process on the line.
+            // Count how many layout lines we receive.
+            // They are stored inside a vector that is owned by the buffer line.
+            // Therefore, we don't have to layout again when it's rendering time.
+            let mut buffer_line = BufferLine::new(line, AttrsList::new(attrs));
+
+            layout_lines_count += buffer_line
+                .layout(
+                    &mut self.voucher.text_store.font_system,
+                    self.font_size,
+                    line_width,
+                    Wrap::Word,
+                )
+                .len();
+
+            self.voucher.text_store.buffer_lines.push(buffer_line);
+        }
+
+        // Push the text component to the builder.
+        // It contains all info to render the lines.
+        let component = Component {
+            buffer_lines_range: buffer_lines_offset..(buffer_lines_offset + buffer_lines_count),
+            layout_lines_count,
+            offset_x: self.spacing.left,
+            offset_y: self.spacing.top + self.font_size,
+            line_width,
+            line_height,
+            leading: (self.line_height - 1.0) * self.font_size,
+            vert_spacing: self.spacing.vert(),
+            alignment: self.alignment,
+        };
+
+        self.voucher
+            .components
+            .push(VoucherComponent::Text(component));
+
+        self.voucher
+    }
+
+    pub fn cancel_text_component(self) -> VoucherBuilder {
+        self.voucher
+    }
 }
 
-pub fn append_text_component(
-    layout: Layout,
-    cache: &mut Cache,
-    text: &str,
-    font: &rusttype::Font,
-    font_size: f32,
-) {
-    // Create a new context that leverages the cache.
-    let ctx = Context::new(cache, font);
+impl VoucherBuilder {
+    pub fn start_text_component(self, text: &str) -> Builder {
+        Builder::new(self, text)
+    }
+}
 
-    // Initialize the font parameters.
-    // We do uniform scaling right now.
-    // TODO: For high-resolution prints, this would be 1:2 ...
-    let scale = rusttype::Scale {
-        x: font_size,
-        y: font_size,
-    };
+pub struct Component {
+    /// The range in the vector of buffer lines
+    buffer_lines_range: Range<usize>,
 
-    let v_metrics = font.v_metrics(scale);
+    /// The number of layout lines that is produced by the buffer lines
+    layout_lines_count: usize,
 
-    let start = rusttype::Point {
-        x: 0.0,
-        y: v_metrics.ascent,
-    };
+    /// The X offset of all lines to render (caused by the left spacing)
+    offset_x: f32,
 
-    // Create an iterator to break the text in runs.
-    // Between runs, there are potential and mandatory line breaks.
-    let runs = xi_unicode::LineBreakIterator::new(text).scan(
-        0,
-        |start_idx, (end_idx, is_mandatory_break)| {
-            let run = &text[*start_idx..end_idx];
-            *start_idx = end_idx + 1;
+    /// The Y offset of the first line to render (aka `spacing.top` + `font_size`)
+    offset_y: f32,
 
-            Some((run, is_mandatory_break))
-        },
-    );
+    /// The width of a line (aka `voucher.width` - `spacing.horz()`)
+    line_width: f32,
 
-    for (run, is_mandatory_break) in runs {
-        // Fetch glyphs for the run and scale them.
-        let mut last_glyph: Option<rusttype::ScaledGlyph> = None;
-        let mut x = 0.0;
+    /// The height of a line (aka `line_height` * `font_size`)
+    line_height: f32,
 
-        for glyph in font.glyphs_for(run.chars()).map(|g| g.scaled(scale)) {
-            // Add the kerning distance to the horizontal offset.
-            if let Some(last_glyph) = last_glyph {
-                x += font.pair_kerning(scale, last_glyph.id(), glyph.id());
+    /// The leading (aka `line_height - 1.0` * `font_size`)
+    leading: f32,
+
+    /// The vertical spacing
+    vert_spacing: f32,
+
+    /// The alignment
+    alignment: Alignment,
+}
+
+impl Component {
+    pub fn height(&self) -> u32 {
+        (self.vert_spacing + ((self.layout_lines_count as f32) * self.line_height) - self.leading)
+            .ceil() as _
+    }
+
+    pub(super) fn render(&self, image: &mut GrayImage, offset_y_pix: u32, store: &mut Store) {
+        // Obtain the bounds of the image.
+        let image_width_pix = image.width() as i32;
+        let image_height_pix = image.height() as i32;
+
+        // Add the given Y offset in pixels to our calculated offset.
+        let mut offset_y = (offset_y_pix as f32) + self.offset_y;
+
+        for buffer_line in &store.buffer_lines[self.buffer_lines_range.clone()] {
+            // Walk the cached layout lines.
+            let layout_lines = buffer_line
+                .layout_opt()
+                .as_ref()
+                .expect("Missing layout (evicted from cache?)");
+
+            for layout_line in layout_lines {
+                // Use the calculated width of the line to determine its X offset.
+                // This is influenced by the alignment.
+                let empty_width = self.line_width - layout_line.w.min(self.line_width);
+
+                let offset_x_pix = (self.offset_x
+                    + match self.alignment {
+                        Alignment::Left => 0.0,
+                        Alignment::Right => empty_width,
+                        Alignment::Center => empty_width / 2.0,
+                    })
+                .round() as i32;
+
+                // Determine the Y offset of the line.
+                // That's pretty easy because line heights are constant.
+                let offset_y_pix = offset_y.round() as i32;
+
+                // Ensure that we don't render clipped lines across the lower image boundary.
+                if offset_y_pix >= image_height_pix {
+                    return;
+                }
+
+                // Render the line.
+                for glyph in layout_line.glyphs.iter() {
+                    store.rasterizer_cache.with_pixels(
+                        &mut store.font_system,
+                        glyph.cache_key,
+                        Color::rgb(0x00, 0x00, 0x00),
+                        |x, y, color| {
+                            let x_pix = offset_x_pix + glyph.x_int + x;
+                            let y_pix = offset_y_pix + glyph.y_int + y;
+
+                            if (x_pix >= 0)
+                                && (x_pix < image_width_pix)
+                                && (y_pix >= 0)
+                                && (y_pix < image_height_pix)
+                            {
+                                // Do manual alpha blending.
+                                // We blend A over B.
+                                // - alpha_a is color.a().
+                                // - luma_a is always 0xff (as our base color is black).
+                                // - alpha_b is always 0xff (as our background is opaque).
+                                // - luma_b is the existing pixel in the image.
+                                // Now, the blend equation simplifies to (1 - alpha_a) * luma_b.
+                                let pix = &mut image.get_pixel_mut(x_pix as u32, y_pix as u32).0;
+                                let luma_b = (pix[0] as f32) / 255.0;
+                                let alpha_a = (color.a() as f32) / 255.0;
+                                let new_luma = (1.0 - alpha_a) * luma_b;
+
+                                pix[0] = (new_luma * 255.0).round() as u8;
+                            }
+                        },
+                    );
+                }
+
+                // Increment the Y offset by one line height.
+                offset_y += self.line_height;
             }
-
-            // Position the glyph and add its width the horizontal offset.
-            cache.current_glyphs.push((glyph.id(), x));
-            x += glyph.h_metrics().advance_width;
-
-            // Remember the glyph for the next iteration so we can respect kerning.
-            last_glyph = Some(glyph);
         }
     }
 }

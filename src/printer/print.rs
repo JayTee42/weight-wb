@@ -3,9 +3,12 @@ use super::{Printer, StatusError, StatusErrorFlags};
 use std::fmt::Display;
 use std::mem;
 
+use image::GrayImage;
+use rusb::Error as USBError;
+
 #[derive(Debug, Clone)]
 pub enum Error {
-    USBError(rusb::Error),
+    USBError(USBError),
     StatusError(StatusError),
     StatusErrorFlags(StatusErrorFlags),
     NoMedia,
@@ -47,8 +50,8 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<rusb::Error> for Error {
-    fn from(value: rusb::Error) -> Self {
+impl From<USBError> for Error {
+    fn from(value: USBError) -> Self {
         Error::USBError(value)
     }
 }
@@ -135,7 +138,7 @@ impl Printer {
         &mut self.print_config
     }
 
-    pub fn print(&self, image: &image::GrayImage) -> Result<(), Error> {
+    pub fn print(&self, image: &GrayImage) -> Result<(), Error> {
         // Perform a status request to obtain the current label.
         let status = self.request_status()?;
 

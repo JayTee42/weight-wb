@@ -3,6 +3,10 @@ use super::{model::Model, Printer};
 use std::fmt::Display;
 use std::time::Duration;
 
+use rusb::{
+    Device, DeviceDescriptor, DeviceList, Direction, Error as USBError, GlobalContext, TransferType,
+};
+
 /// USB Vendor ID for Brother QL printers
 const VENDOR_ID: u16 = 0x04f9;
 
@@ -15,7 +19,7 @@ const IO_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
-    USBError(rusb::Error),
+    USBError(USBError),
     NoPrinter,
     NoInterface,
     NoInterfaceDescriptor,
@@ -48,26 +52,19 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<rusb::Error> for Error {
-    fn from(err: rusb::Error) -> Self {
+impl From<USBError> for Error {
+    fn from(err: USBError) -> Self {
         Error::USBError(err)
     }
 }
 
 fn select_device<F>(
     mut f: F,
-) -> Result<
-    Option<(
-        Model,
-        rusb::Device<rusb::GlobalContext>,
-        rusb::DeviceDescriptor,
-    )>,
-    rusb::Error,
->
+) -> Result<Option<(Model, Device<GlobalContext>, DeviceDescriptor)>, USBError>
 where
-    F: FnMut(Model, &rusb::DeviceDescriptor) -> bool,
+    F: FnMut(Model, &DeviceDescriptor) -> bool,
 {
-    Ok(rusb::DeviceList::new()?
+    Ok(DeviceList::new()?
         .iter()
         .find_map(|device| {
             // Obtain the device descriptor.
@@ -99,7 +96,7 @@ where
         }))
 }
 
-fn select_interface(device: &rusb::Device<rusb::GlobalContext>) -> Result<(u8, u8, u8), Error> {
+fn select_interface(device: &Device<GlobalContext>) -> Result<(u8, u8, u8), Error> {
     // Query the interface from the device. There should be exactly one.
     let config_desc = device.active_config_descriptor()?;
     let interface = config_desc.interfaces().next().ok_or(Error::NoInterface)?;
@@ -116,11 +113,11 @@ fn select_interface(device: &rusb::Device<rusb::GlobalContext>) -> Result<(u8, u
 
     for endpoint_desc in interface_desc
         .endpoint_descriptors()
-        .filter(|desc| desc.transfer_type() == rusb::TransferType::Bulk)
+        .filter(|desc| desc.transfer_type() == TransferType::Bulk)
     {
         match endpoint_desc.direction() {
-            rusb::Direction::In => in_addr = Some(endpoint_desc.address()),
-            rusb::Direction::Out => out_addr = Some(endpoint_desc.address()),
+            Direction::In => in_addr = Some(endpoint_desc.address()),
+            Direction::Out => out_addr = Some(endpoint_desc.address()),
         }
     }
 
@@ -182,11 +179,11 @@ impl Printer {
         &self.serial_number
     }
 
-    pub(super) fn read(&self, data: &mut [u8]) -> Result<usize, rusb::Error> {
+    pub(super) fn read(&self, data: &mut [u8]) -> Result<usize, USBError> {
         self.handle.read_bulk(self.in_addr, data, IO_TIMEOUT)
     }
 
-    pub(super) fn write(&self, data: &[u8]) -> Result<(), rusb::Error> {
+    pub(super) fn write(&self, data: &[u8]) -> Result<(), USBError> {
         let written_bytes = self.handle.write_bulk(self.out_addr, data, IO_TIMEOUT)?;
 
         // Can this happen at all ... ? Never seen it ...

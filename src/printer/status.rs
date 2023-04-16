@@ -2,9 +2,11 @@ use super::{Label, LabelType, Printer};
 
 use std::fmt::Display;
 
+use rusb::Error as USBError;
+
 #[derive(Debug, Clone)]
 pub enum Error {
-    USBError(rusb::Error),
+    USBError(USBError),
     WrongResponseSizeUSB(usize),
     WrongPrintHeadMark(u8),
     WrongResponseSizeHeader(u8),
@@ -27,8 +29,8 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<rusb::Error> for Error {
-    fn from(value: rusb::Error) -> Self {
+impl From<USBError> for Error {
+    fn from(value: USBError) -> Self {
         Error::USBError(value)
     }
 }

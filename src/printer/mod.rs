@@ -1,3 +1,5 @@
+use rusb::{DeviceHandle, GlobalContext};
+
 /// There are different printer models with variable parameters.
 mod model;
 pub use model::Model;
@@ -19,7 +21,7 @@ mod print;
 pub use print::{Error as PrintError, PrintConfig, PrintPriority};
 
 pub struct Printer {
-    handle: rusb::DeviceHandle<rusb::GlobalContext>,
+    handle: DeviceHandle<GlobalContext>,
     model: Model,
     in_addr: u8,
     out_addr: u8,
