@@ -130,11 +130,13 @@ impl Builder {
     }
 }
 
+/// Add image components to a voucher
 pub mod img;
 
 pub use img::Builder as ImageComponentBuilder;
 use img::Component as ImageComponent;
 
+/// Add text components to a voucher
 pub mod text;
 
 pub use text::Builder as TextComponentBuilder;

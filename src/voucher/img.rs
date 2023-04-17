@@ -95,10 +95,10 @@ pub struct Component {
     /// The converted and resized image
     image: GrayImage,
 
-    /// The X pixel offset to render the image to (caused by the left spacing and alignment)
+    /// The X pixel offset to render the image to (aka `spacing.left` + potential alignment)
     offset_x_pix: u32,
 
-    /// The Y pixel offset to render the image to (caused by the top spacing)
+    /// The Y pixel offset to render the image to (aka `spacing.top`)
     offset_y_pix: u32,
 
     /// The vertical spacing in pixels

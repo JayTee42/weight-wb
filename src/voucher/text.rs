@@ -217,7 +217,7 @@ pub struct Component {
     /// The number of layout lines that is produced by the buffer lines
     layout_lines_count: usize,
 
-    /// The X offset of all lines to render (caused by the left spacing)
+    /// The X offset of all lines to render (aka `spacing.left`)
     offset_x: f32,
 
     /// The Y offset of the first line to render (aka `spacing.top` + `font_size`)
@@ -253,71 +253,98 @@ impl Component {
         // Add the given Y offset in pixels to our calculated offset.
         let mut offset_y = (offset_y_pix as f32) + self.offset_y;
 
-        for buffer_line in &store.buffer_lines[self.buffer_lines_range.clone()] {
-            // Walk the cached layout lines.
-            let layout_lines = buffer_line
-                .layout_opt()
-                .as_ref()
-                .expect("Missing layout (evicted from cache?)");
+        // Walk the layout lines inside the buffer lines.
+        // They must be present because we have already performed layouting.
+        let layout_lines = store.buffer_lines[self.buffer_lines_range.clone()]
+            .iter()
+            .flat_map(|buffer_line| {
+                buffer_line
+                    .layout_opt()
+                    .as_ref()
+                    .expect("Missing layout (evicted from cache?)")
+            });
 
-            for layout_line in layout_lines {
-                // Use the calculated width of the line to determine its X offset.
-                // This is influenced by the alignment.
-                let empty_width = self.line_width - layout_line.w.min(self.line_width);
+        for layout_line in layout_lines {
+            // Use the calculated width of the line to determine its X offset.
+            // This is influenced by the alignment.
+            let empty_width = self.line_width - layout_line.w.min(self.line_width);
 
-                let offset_x_pix = (self.offset_x
-                    + match self.alignment {
-                        Alignment::Left => 0.0,
-                        Alignment::Right => empty_width,
-                        Alignment::Center => empty_width / 2.0,
-                    })
-                .round() as i32;
+            let offset_x_pix = (self.offset_x
+                + match self.alignment {
+                    Alignment::Left => 0.0,
+                    Alignment::Right => empty_width,
+                    Alignment::Center => empty_width / 2.0,
+                })
+            .round() as i32;
 
-                // Determine the Y offset of the line.
-                // That's pretty easy because line heights are constant.
-                let offset_y_pix = offset_y.round() as i32;
+            // Determine the Y offset of the line.
+            // That's pretty easy because line heights are constant.
+            let offset_y_pix = offset_y.round() as i32;
 
-                // Ensure that we don't render clipped lines across the lower image boundary.
-                if offset_y_pix >= image_height_pix {
+            // Walk all the glyphs to rasterize them.
+            for glyph in layout_line.glyphs.iter() {
+                // Rasterize the glyph and obtain its placement.
+                // This can fail if none of the swash sources we requested is available.
+                // But then it probably fails for every glyph ...
+                let Some(placement) = store
+                        .rasterizer_cache
+                        .get_image(&mut store.font_system, glyph.cache_key)
+                        .as_ref()
+                        .map(|image| image.placement)
+                else {
+                    continue;
+                };
+
+                // Build the glyph bounding box and ensure that it is completely contained in the image.
+                // This validation step allows us to omit bounds checks from the hot inner loop.
+                let left_pix = offset_x_pix + glyph.x_int + placement.left;
+                let right_pix = left_pix + ((placement.width as i32) - 1);
+                let top_pix = offset_y_pix + glyph.y_int - placement.top;
+                let bottom_pix = top_pix + ((placement.height as i32) - 1);
+
+                // If at least one glyph does not fit, stop rendering the whole line.
+                if (left_pix < 0)
+                    || (right_pix >= image_width_pix)
+                    || (top_pix < 0)
+                    || (bottom_pix >= image_height_pix)
+                {
                     return;
                 }
-
-                // Render the line.
-                for glyph in layout_line.glyphs.iter() {
-                    store.rasterizer_cache.with_pixels(
-                        &mut store.font_system,
-                        glyph.cache_key,
-                        Color::rgb(0x00, 0x00, 0x00),
-                        |x, y, color| {
-                            let x_pix = offset_x_pix + glyph.x_int + x;
-                            let y_pix = offset_y_pix + glyph.y_int + y;
-
-                            if (x_pix >= 0)
-                                && (x_pix < image_width_pix)
-                                && (y_pix >= 0)
-                                && (y_pix < image_height_pix)
-                            {
-                                // Do manual alpha blending.
-                                // We blend A over B.
-                                // - alpha_a is color.a().
-                                // - luma_a is always 0xff (as our base color is black).
-                                // - alpha_b is always 0xff (as our background is opaque).
-                                // - luma_b is the existing pixel in the image.
-                                // Now, the blend equation simplifies to (1 - alpha_a) * luma_b.
-                                let pix = &mut image.get_pixel_mut(x_pix as u32, y_pix as u32).0;
-                                let luma_b = (pix[0] as f32) / 255.0;
-                                let alpha_a = (color.a() as f32) / 255.0;
-                                let new_luma = (1.0 - alpha_a) * luma_b;
-
-                                pix[0] = (new_luma * 255.0).round() as u8;
-                            }
-                        },
-                    );
-                }
-
-                // Increment the Y offset by one line height.
-                offset_y += self.line_height;
             }
+
+            // If the line fits, walk the glyphs again and copy their pixels into the image.
+            for glyph in layout_line.glyphs.iter() {
+                // Walk the pixels of the glyph.
+                let base_left_pix = offset_x_pix + glyph.x_int;
+                let base_bottom_pix = offset_y_pix + glyph.y_int;
+
+                store.rasterizer_cache.with_pixels(
+                    &mut store.font_system,
+                    glyph.cache_key,
+                    Color::rgb(0x00, 0x00, 0x00),
+                    |x, y, color| {
+                        // Determine the final position of the pixel.
+                        let x_pix = base_left_pix + x;
+                        let y_pix = base_bottom_pix + y;
+
+                        // Perform manual alpha blending. We blend A over B.
+                        // - `alpha_a` is color.a().
+                        // - `luma_a` is always 0xff (as our base color is black).
+                        // - `alpha_b` is always 0xff (as our background is opaque).
+                        // - `luma_b` is the existing pixel in the image.
+                        // Now, the blend equation simplifies to (1 - alpha_a) * luma_b.
+                        let pix = &mut image.get_pixel_mut(x_pix as u32, y_pix as u32).0;
+                        let luma_b = (pix[0] as f32) / 255.0;
+                        let alpha_a = (color.a() as f32) / 255.0;
+                        let new_luma = (1.0 - alpha_a) * luma_b;
+
+                        pix[0] = (new_luma * 255.0).round() as u8;
+                    },
+                );
+            }
+
+            // Increment the Y offset by one line height.
+            offset_y += self.line_height;
         }
     }
 }

@@ -34,7 +34,7 @@ impl LabelType {
         }
     }
 
-    pub(super) fn to_bytes(&self) -> (u8, u8, u8) {
+    pub(super) fn as_bytes(&self) -> (u8, u8, u8) {
         use LabelType::*;
 
         match *self {

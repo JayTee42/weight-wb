@@ -3,7 +3,7 @@ use weight_wb::voucher::{Alignment, Builder, Spacing};
 use image::io::Reader as ImageReader;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let img = ImageReader::open("/home/jaytee/logo.png")?.decode()?;
+    let img = ImageReader::open("/home/jaytee/Downloads/logo.png")?.decode()?;
 
     let product = "Rinderschinken";
     let weight = 20.4;
@@ -16,39 +16,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trailer = "Waldhof Wielenberg · F. Möller / K. Mau Gbr\nZum Wald 1 · 24991 Freienwill\n0151-52 42 29 84 · waldhofwielenberg@gmail.com";
 
     let voucher = Builder::new(690, None)
+        // Logo
         .start_image_component(&img)
-        .spacing(Spacing::horz_vert(16.0, 20.0))
+        .spacing(Spacing::horz_vert(20.0, 20.0))
         .finalize_image_component()
+        // Product
         .start_text_component(product)
         .spacing(Spacing::horz_vert(16.0, 16.0))
         .font_size(40.0)
         .alignment(Alignment::Center)
         .bold(true)
         .finalize_text_component()
+        // Mass
         .start_text_component(&format!("Gewicht: {:.02} kg", weight))
         .spacing(Spacing::horz_vert(16.0, 12.0))
         .font_size(18.0)
         .finalize_text_component()
+        // Price
         .start_text_component(&format!("Preis: {:.02} €", weight * price_per_kg))
         .spacing(Spacing::horz_vert(16.0, 24.0))
         .font_size(30.0)
         .bold(true)
         .finalize_text_component()
+        // Ingredients
         .start_text_component(&format!("Zutaten: {}", ingredients))
         .spacing(Spacing::horz_vert(16.0, 12.0))
         .font_size(18.0)
         .finalize_text_component()
-        .start_text_component(&format!("{}", additional))
+        // Additionals
+        .start_text_component(additional)
         .spacing(Spacing::horz_vert(16.0, 12.0))
         .font_size(18.0)
         .finalize_text_component()
+        // Mhd
         .start_text_component(&format!("Ungeöffnet mindestens haltbar bis: {}", mhd))
         .spacing(Spacing::horz_vert(16.0, 12.0))
         .font_size(18.0)
         .finalize_text_component()
-        .start_text_component(&format!("{}", trailer))
-        .spacing(Spacing::lrtb(8.0, 8.0, 48.0, 12.0))
+        // Trailer
+        .start_text_component(trailer)
+        .spacing(Spacing::lrtb(8.0, 8.0, 48.0, 8.0))
         .font_size(14.0)
+        .alignment(Alignment::Center)
         .italic(true)
         .finalize_text_component()
         .build();

@@ -158,7 +158,7 @@ impl Printer {
 
         // Extract the label type and map it to a label.
         let label = if let Some(ty) = LabelType::from_bytes(data[11], data[10], data[17]) {
-            Some(Label::try_from((self.model, ty)).map_err(|err| Error::InvalidLabel(err))?)
+            Some(Label::try_from((self.model, ty)).map_err(Error::InvalidLabel)?)
         } else {
             None
         };

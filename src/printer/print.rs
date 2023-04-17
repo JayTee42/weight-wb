@@ -123,7 +123,7 @@ impl<'a> BitWriter<'a> {
 
         if self.bit_idx == 0 {
             // Borrow checker shenanigans ...
-            let output = mem::replace(&mut self.output, &mut []);
+            let output = mem::take(&mut self.output);
             self.output = &mut output[1..];
 
             self.bit_idx = 7;
@@ -183,7 +183,7 @@ impl Printer {
         }
 
         // Provide the print info.
-        let (label_ty, label_width, label_length) = label.ty.to_bytes();
+        let (label_ty, label_width, label_length) = label.ty.as_bytes();
         let lines_count_bytes = image.height().to_le_bytes();
 
         self.write(&[
