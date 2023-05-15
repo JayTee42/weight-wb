@@ -165,6 +165,11 @@ impl ProductEntry {
             .map(|days| Local::now() + Duration::days(days as _))
     }
 
+    pub fn expiration_date_formatted(&self) -> Option<String> {
+        self.expiration_date()
+            .map(|date| date.format("%d.%m.%Y %H:%M:%S").to_string())
+    }
+
     fn load(row: &Row) -> SQLiteResult<Self> {
         Ok(Self {
             id: Some(row.get("id")?),
@@ -304,7 +309,7 @@ impl SaleEntry {
         })
     }
 
-    pub fn load_all(&self, con: &Connection, sales: &mut Vec<Self>) -> SQLiteResult<()> {
+    pub fn load_all(con: &Connection, sales: &mut Vec<Self>) -> SQLiteResult<()> {
         let mut stmt = con.prepare(
             "SELECT
                 date_2822,
@@ -459,6 +464,16 @@ impl Database {
         let product = self.products.remove(idx);
         product.delete(&self.con)?;
 
+        Ok(())
+    }
+
+    pub fn sales(&self, sales: &mut Vec<SaleEntry>) -> SQLiteResult<()> {
+        SaleEntry::load_all(&self.con, sales)?;
+        Ok(())
+    }
+
+    pub fn add_sale(&self, new_sale: SaleEntry) -> SQLiteResult<()> {
+        new_sale.store(&self.con)?;
         Ok(())
     }
 }

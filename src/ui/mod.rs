@@ -1,6 +1,9 @@
 use crate::{
-    db::{Database, ProductEntry},
-    printer::{AttachError, Model, Printer},
+    db::{Database, ProductEntry, SaleEntry},
+    printer::{AttachError, Model, PrintError, Printer},
+    voucher::{
+        Alignment as VoucherAlignment, Builder as VoucherBuilder, Spacing as VoucherSpacing,
+    },
 };
 
 use std::{error::Error, io};
@@ -12,6 +15,8 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+
+use image::io::Reader as ImageReader;
 
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -34,6 +39,12 @@ enum Navigation {
     Down,
     Left,
     Right,
+}
+
+#[derive(Copy, Clone)]
+struct Action {
+    pub sale: bool,
+    pub print: bool,
 }
 
 pub struct App {
@@ -66,12 +77,16 @@ impl App {
     }
 
     fn reconnect_printer(&mut self) {
+        // Ensure that the printer is dropped first!
+        self.printer = Err(AttachError::NoPrinter);
+
+        // Now try to reattach it.
         self.printer = Printer::attach(Some(Model::BrotherQL600));
 
         if self.printer.is_ok() {
-            self.reconnect_printer_date = self.now + Duration::seconds(30);
+            self.reconnect_printer_date = self.now + Duration::seconds(60);
         } else {
-            self.reconnect_printer_date = self.now + Duration::seconds(5);
+            self.reconnect_printer_date = self.now + Duration::seconds(10);
         }
     }
 
@@ -107,6 +122,25 @@ impl App {
             if product_idx < (self.db.products().len() - 1) {
                 self.product_list_state.select(Some(product_idx + 1));
             }
+        }
+    }
+
+    fn selected_action(&self) -> Action {
+        match self.action_list_state.selected().unwrap() {
+            0 => Action {
+                sale: true,
+                print: true,
+            },
+            1 => Action {
+                sale: true,
+                print: false,
+            },
+            2 => Action {
+                sale: false,
+                print: true,
+            },
+
+            _ => unreachable!(),
         }
     }
 
@@ -146,6 +180,155 @@ impl App {
         }
     }
 
+    fn perform_action(&mut self) -> Result<(), Box<dyn Error>> {
+        // If we are not in the sale chunk or there is no product, we exit early.
+        if self.focus != Focus::Sale {
+            return Ok(());
+        }
+
+        // Query the selected action.
+        let action = self.selected_action();
+
+        // TODO: Obtain the weight.
+        let weight_kg = 42.3;
+
+        // Should we print a voucher?
+        if action.print {
+            if !self.print_voucher(weight_kg, true)? {
+                return Ok(());
+            }
+        }
+
+        // Should we add a sale?
+        if action.sale {
+            if !self.perform_sale(weight_kg)? {
+                return Ok(());
+            }
+        }
+
+        // TODO: Show success message
+
+        Ok(())
+    }
+
+    fn print_voucher(
+        &mut self,
+        weight_kg: f64,
+        should_retry: bool,
+    ) -> Result<bool, Box<dyn Error>> {
+        // There must be a product to continue.
+        let Some(product) = self.selected_product() else {
+            // No error message here, the error is obvious.
+            return Ok(false);
+        };
+
+        // If there is no printer, try to reconnect it once.
+        let Ok(printer) = &self.printer else {
+            if should_retry {
+                self.reconnect_printer();
+                return self.print_voucher( weight_kg, false);
+            }
+
+            // TODO: Show error message.
+            return Ok(false);
+        };
+
+        // Calculate the price.
+        let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
+        let euro = weight_kg * euro_per_kg;
+
+        // Build the voucher.
+        let logo = ImageReader::open("logo.png")
+            .expect("Failed to load logo")
+            .decode()
+            .expect("Failed to decode logo");
+
+        let mhd = product.expiration_date_formatted();
+        let info = self.db.info();
+
+        let trailer = format!(
+            "{} · {} · {}, {}, · {} · {}",
+            info.business, info.owners, info.street, info.locality, info.phone, info.mail
+        );
+
+        let voucher = VoucherBuilder::new(696, None)
+            // Logo
+            .start_image_component(&logo)
+            .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
+            .finalize_image_component()
+            // Product
+            .start_text_component(&product.name)
+            .spacing(VoucherSpacing::horz_vert(16.0, 16.0))
+            .font_size(50.0)
+            .alignment(VoucherAlignment::Center)
+            .bold(true)
+            .finalize_text_component()
+            // Mass
+            .start_text_component(&format!("Gewicht: {:.02} kg", weight_kg))
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Price
+            .start_text_component(&format!("Preis: {:.02} €", euro))
+            .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
+            .font_size(40.0)
+            .bold(true)
+            .finalize_text_component()
+            // Ingredients
+            .start_text_component(&format!("Zutaten: {}", product.ingredients))
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Additionals
+            .start_text_component(&product.additional_info)
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Mhd
+            .start_text_component(&format!(
+                "Ungeöffnet mindestens haltbar bis: {}",
+                mhd.as_deref().unwrap_or("-")
+            ))
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Trailer
+            .start_text_component(&trailer)
+            .spacing(VoucherSpacing::lrtb(8.0, 8.0, 48.0, 8.0))
+            .font_size(21.0)
+            .alignment(VoucherAlignment::Center)
+            .italic(true)
+            .finalize_text_component()
+            .build();
+
+        // Try to print it.
+        if let Err(err) = printer.print(&voucher) {
+            // Try a reconnect on USB errors once.
+            if matches!(err, PrintError::USBError(_)) {
+                self.reconnect_printer();
+                return self.print_voucher(weight_kg, false);
+            }
+
+            // TODO: Show error message
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    fn perform_sale(&self, weight_kg: f64) -> Result<bool, Box<dyn Error>> {
+        // There must be a product to continue.
+        let Some(product) = self.selected_product() else {
+            // No error message here, the error is obvious.
+            return Ok(false);
+        };
+
+        let sale = SaleEntry::new(self.now, product.name.clone(), weight_kg, product.ct_per_kg);
+        self.db.add_sale(sale)?;
+
+        Ok(true)
+    }
+
     fn run_in_terminal<B: Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
@@ -182,6 +365,7 @@ impl App {
                         KeyCode::Down => self.navigate(Navigation::Down),
                         KeyCode::Left => self.navigate(Navigation::Left),
                         KeyCode::Right => self.navigate(Navigation::Right),
+                        KeyCode::Enter => self.perform_action()?,
 
                         _ => {}
                     }
@@ -326,7 +510,6 @@ impl App {
 
         // Build the paragraph for the details.
         let euro_per_kg = format!("{:.2} €", (product.ct_per_kg as f64) / 100.0);
-
         let mut details = Vec::with_capacity(5);
 
         details.push(Spans::from(vec![
@@ -381,12 +564,10 @@ impl App {
             ),
         ]));
 
-        if let Some(expiration_date) = product.expiration_date() {
-            let mhd = expiration_date.format("%d.%m.%Y %H:%M:%S").to_string();
-
+        if let Some(mhd) = product.expiration_date_formatted() {
             details.push(Spans::from(vec![
                 Span::styled(
-                    "Mindestens haltbar bis: ",
+                    "Ungeöffnet mindestens haltbar bis: ",
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
