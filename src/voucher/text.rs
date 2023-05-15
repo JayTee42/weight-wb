@@ -241,7 +241,14 @@ pub struct Component {
 
 impl Component {
     pub fn height(&self) -> u32 {
-        (self.vert_spacing + ((self.layout_lines_count as f32) * self.line_height) - self.leading)
+        // WIP: Account for Cosmic-Text #123 by incorporating one half of a line height.
+        // This will hopefully be fixed in the future!
+        // See here:
+        // https://github.com/pop-os/cosmic-text/issues/123
+        let fix_me_cosmic_text = 0.5 * self.line_height;
+
+        (self.vert_spacing + ((self.layout_lines_count as f32) * self.line_height) - self.leading
+            + fix_me_cosmic_text)
             .ceil() as _
     }
 

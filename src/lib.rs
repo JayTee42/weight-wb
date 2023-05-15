@@ -6,3 +6,6 @@ pub mod printer;
 
 /// Generate vouchers and save them to images to be printed.
 pub mod voucher;
+
+/// Access the product database.
+pub mod db;
