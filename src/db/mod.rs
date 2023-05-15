@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Local, Utc};
 use rusqlite::{named_params, Connection, Result as SQLiteResult, Row};
 
 pub struct InfoEntry {
@@ -160,6 +160,11 @@ impl ProductEntry {
         }
     }
 
+    pub fn expiration_date(&self) -> Option<DateTime<Local>> {
+        self.expiration_days
+            .map(|days| Local::now() + Duration::days(days as _))
+    }
+
     fn load(row: &Row) -> SQLiteResult<Self> {
         Ok(Self {
             id: Some(row.get("id")?),
@@ -183,9 +188,13 @@ impl ProductEntry {
             FROM products",
         )?;
 
+        products.clear();
+
         for product in stmt.query_map((), |row| Self::load(row))? {
             products.push(product?);
         }
+
+        products.sort_by(|p0, p1| p0.name.cmp(&p1.name));
 
         Ok(())
     }
@@ -305,9 +314,13 @@ impl SaleEntry {
             FROM sales",
         )?;
 
+        sales.clear();
+
         for sale in stmt.query_map((), |row| Self::load(row))? {
             sales.push(sale?);
         }
+
+        sales.sort_by(|s0, s1| s0.date.cmp(&s1.date));
 
         Ok(())
     }
@@ -418,9 +431,7 @@ impl Database {
     }
 
     pub fn reload_products(&mut self) -> SQLiteResult<()> {
-        self.products.clear();
         ProductEntry::load_all(&self.con, &mut self.products)?;
-
         Ok(())
     }
 

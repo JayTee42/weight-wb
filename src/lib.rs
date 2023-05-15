@@ -9,3 +9,6 @@ pub mod voucher;
 
 /// Access the product database.
 pub mod db;
+
+/// Render the UI.
+pub mod ui;

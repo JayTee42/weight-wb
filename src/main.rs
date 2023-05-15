@@ -1,9 +1,7 @@
-use weight_wb::printer::Printer;
-use weight_wb::voucher::{Alignment, Builder, Spacing};
-
-use image::io::Reader as ImageReader;
+use weight_wb::ui::App;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /*
     let img = ImageReader::open("/Users/jaytee/Downloads/logo.png")?.decode()?;
 
     let product = "Rinderschinken";
@@ -67,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let printer = Printer::attach(None)?;
     printer.print(&voucher)?;
+    */
 
-    Ok(())
+    App::run()
 }
