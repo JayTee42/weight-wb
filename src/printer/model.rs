@@ -52,7 +52,34 @@ impl TryFrom<u16> for Model {
             0x2042 => BrotherQL700,
             0x2020 => BrotherQL1050,
             0x202a => BrotherQL1060N,
+
             _ => return Err(format!("Unknown product ID: {:#06x}", value)),
+        })
+    }
+}
+
+impl TryFrom<&str> for Model {
+    type Error = String;
+
+    fn try_from(mut value: &str) -> Result<Self, Self::Error> {
+        use Model::*;
+
+        value = value.strip_prefix("Brother").unwrap_or(value);
+        value = value.strip_prefix("QL").unwrap_or(value);
+
+        Ok(match value {
+            "500" => BrotherQL500,
+            "550" => BrotherQL550,
+            "560" => BrotherQL560,
+            "570" => BrotherQL570,
+            "580N" => BrotherQL580N,
+            "600" => BrotherQL600,
+            "650TD" => BrotherQL650TD,
+            "700" => BrotherQL700,
+            "1050" => BrotherQL1050,
+            "1060N" => BrotherQL1060N,
+
+            _ => return Err(format!("Unknown product name: {}", value)),
         })
     }
 }

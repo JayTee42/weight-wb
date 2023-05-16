@@ -1,12 +1,15 @@
 use crate::{
     db::{Database, ProductEntry, SaleEntry},
-    printer::{AttachError, Model, PrintError, Printer},
+    printer::{AttachError, Model as PrinterModel, PrintError, Printer},
     voucher::{
         Alignment as VoucherAlignment, Builder as VoucherBuilder, Spacing as VoucherSpacing,
     },
+    weight::{Scales, WeightResult},
 };
 
-use std::{error::Error, io};
+use std::error::Error;
+use std::io;
+use std::thread;
 
 use chrono::{DateTime, Duration, Utc};
 
@@ -76,6 +79,7 @@ enum Popup {
 pub struct App {
     now: DateTime<Utc>,
     db: Database,
+    scales: Scales,
     printer: Result<Printer, AttachError>,
     reconnect_printer_date: DateTime<Utc>,
     focus: Focus,
@@ -86,7 +90,7 @@ pub struct App {
 }
 
 impl App {
-    fn on_startup(&mut self) {
+    fn on_startup(&mut self) -> Result<(), Box<dyn Error>> {
         // Adjust the product index for the first time.
         self.reset_selected_product_idx();
 
@@ -94,32 +98,46 @@ impl App {
         self.action_list_state.select(Some(0));
 
         // Try to connect to the printer.
-        self.reconnect_printer();
+        self.reconnect_printer()?;
+
+        Ok(())
     }
 
-    fn on_tick(&mut self) {
+    fn on_tick(&mut self) -> Result<(), Box<dyn Error>> {
         // Check if we should reconnect the printer.
         if self.reconnect_printer_date <= self.now {
-            self.reconnect_printer();
+            self.reconnect_printer()?;
         }
+
+        Ok(())
     }
 
-    fn weight(&self) -> Result<f64, PrintError> {
-        Ok(42.3)
+    fn weight(&self) -> WeightResult {
+        self.scales.weight()
     }
 
-    fn reconnect_printer(&mut self) {
+    fn reconnect_printer(&mut self) -> Result<(), Box<dyn Error>> {
         // Ensure that the old printer is dropped first!
         self.printer = Err(AttachError::NoPrinter);
 
         // Now try to reattach it.
-        self.printer = Printer::attach(Some(Model::BrotherQL600));
+        let model_filter = self
+            .db
+            .info()
+            .printer_model
+            .as_deref()
+            .map(|model| PrinterModel::try_from(model))
+            .transpose()?;
+
+        self.printer = Printer::attach(model_filter);
 
         if self.printer.is_ok() {
             self.reconnect_printer_date = self.now + Duration::seconds(120);
         } else {
             self.reconnect_printer_date = self.now + Duration::seconds(10);
         }
+
+        Ok(())
     }
 
     fn selected_product_idx(&self) -> Option<usize> {
@@ -342,7 +360,7 @@ impl App {
             Err(err) => {
                 // If there is no printer, try to reconnect it once.
                 if should_retry {
-                    self.reconnect_printer();
+                    self.reconnect_printer()?;
                     return self.print_voucher(product, weight_kg, false);
                 }
 
@@ -387,12 +405,12 @@ impl App {
             .bold(true)
             .finalize_text_component()
             // Weight
-            .start_text_component(&format!("Gewicht: {:.02} kg", weight_kg))
+            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg))
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()
             // Price
-            .start_text_component(&format!("Preis: {:.02} €", euro))
+            .start_text_component(&format!("Preis: {:.2} €", euro))
             .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
             .font_size(40.0)
             .bold(true)
@@ -428,7 +446,7 @@ impl App {
         if let Err(err) = printer.print(&voucher) {
             // Try a reconnect once on USB errors.
             if matches!(err, PrintError::USBError(_)) {
-                self.reconnect_printer();
+                self.reconnect_printer()?;
                 return self.print_voucher(product, weight_kg, false);
             }
 
@@ -437,6 +455,9 @@ impl App {
 
             return Ok(false);
         }
+
+        // Sleep for a moment until we are done printing.
+        thread::sleep(Duration::seconds(2).to_std().unwrap());
 
         Ok(true)
     }
@@ -453,7 +474,7 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<(), Box<dyn Error>> {
         // Perform the startup logic.
-        self.on_startup();
+        self.on_startup()?;
 
         // Track the time to provide the application with a tick.
         let tick_rate = Duration::milliseconds(250);
@@ -477,6 +498,7 @@ impl App {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('r') => {
+                            self.db.reload_info()?;
                             self.db.reload_products()?;
                             self.reset_selected_product_idx();
                         }
@@ -492,7 +514,7 @@ impl App {
             }
 
             if time_since_last_tick >= tick_rate {
-                self.on_tick();
+                self.on_tick()?;
                 last_tick = self.now;
             }
         }
@@ -502,7 +524,7 @@ impl App {
         // Split the window into body and status line.
         let vert_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+            .constraints([Constraint::Min(3), Constraint::Length(4)].as_ref())
             .split(frame.size());
 
         let body_chunk = vert_chunks[0];
@@ -580,10 +602,13 @@ impl App {
     pub fn run() -> Result<(), Box<dyn Error>> {
         // Instantiate the app.
         let now = Utc::now();
+        let db = Database::open_or_create("db.sqlite")?;
+        let scales = Scales::on_serial_port(&db.info().serial_port);
 
         let mut app = App {
             now,
-            db: Database::open_or_create("db.sqlite")?,
+            db,
+            scales,
             printer: Err(AttachError::NoPrinter),
             reconnect_printer_date: now,
             focus: Focus::Product,

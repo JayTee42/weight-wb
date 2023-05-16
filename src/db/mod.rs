@@ -11,6 +11,8 @@ pub struct InfoEntry {
     pub locality: String,
     pub phone: String,
     pub mail: String,
+    pub serial_port: String,
+    pub printer_model: Option<String>,
 }
 
 impl InfoEntry {
@@ -21,6 +23,8 @@ impl InfoEntry {
         locality: String,
         phone: String,
         mail: String,
+        serial_port: String,
+        printer_model: Option<String>,
     ) -> Self {
         Self {
             business,
@@ -29,6 +33,8 @@ impl InfoEntry {
             locality,
             phone,
             mail,
+            serial_port,
+            printer_model,
         }
     }
 
@@ -40,6 +46,8 @@ impl InfoEntry {
             locality: String::from("<locality>"),
             phone: String::from("<phone>"),
             mail: String::from("<mail>"),
+            serial_port: String::from("/dev/ttyUSB0"),
+            printer_model: Some(String::from("BrotherQL600")),
         }
     }
 
@@ -51,7 +59,9 @@ impl InfoEntry {
                 street,
                 locality,
                 phone,
-                mail
+                mail,
+                serial_port,
+                printer_model
             FROM info",
             (),
             |row| {
@@ -62,6 +72,8 @@ impl InfoEntry {
                     locality: row.get("locality")?,
                     phone: row.get("phone")?,
                     mail: row.get("mail")?,
+                    serial_port: row.get("serial_port")?,
+                    printer_model: row.get("printer_model")?,
                 })
             },
         )?)
@@ -76,7 +88,9 @@ impl InfoEntry {
                 street,
                 locality,
                 phone,
-                mail
+                mail,
+                serial_port,
+                printer_model
             ) VALUES (
                 :_lock,
                 :business,
@@ -84,7 +98,9 @@ impl InfoEntry {
                 :street,
                 :locality,
                 :phone,
-                :mail
+                :mail,
+                :serial_port,
+                :printer_model
             )",
             named_params! {
                 ":_lock": 0,
@@ -93,7 +109,9 @@ impl InfoEntry {
                 ":street": self.street,
                 ":locality": self.locality,
                 ":phone": self.phone,
-                ":mail": self.mail
+                ":mail": self.mail,
+                ":serial_port": self.serial_port,
+                ":printer_model": self.printer_model
             },
         )?;
 
@@ -109,7 +127,9 @@ impl InfoEntry {
                 street,
                 locality,
                 phone,
-                mail
+                mail,
+                serial_port,
+                printer_model
             ) VALUES (
                 :_lock,
                 :business,
@@ -117,7 +137,9 @@ impl InfoEntry {
                 :street,
                 :locality,
                 :phone,
-                :mail
+                :mail,
+                :serial_port,
+                :printer_model
             )",
             named_params! {
                 ":_lock": 0,
@@ -126,7 +148,9 @@ impl InfoEntry {
                 ":street": self.street,
                 ":locality": self.locality,
                 ":phone": self.phone,
-                ":mail": self.mail
+                ":mail": self.mail,
+                ":serial_port": self.serial_port,
+                ":printer_model": self.printer_model
             },
         )?;
 
@@ -378,7 +402,9 @@ impl Database {
                 street TEXT NOT NULL,
                 locality TEXT NOT NULL,
                 phone TEXT NOT NULL,
-                mail TEXT NOT NULL
+                mail TEXT NOT NULL,
+                serial_port TEXT NOT NULL,
+                printer_model TEXT
             )",
             (),
         )?;
@@ -425,6 +451,11 @@ impl Database {
 
     pub fn info(&self) -> &InfoEntry {
         &self.info
+    }
+
+    pub fn reload_info(&mut self) -> SQLiteResult<()> {
+        self.info = InfoEntry::load(&self.con)?;
+        Ok(())
     }
 
     pub fn update_info<F: FnMut(&mut InfoEntry)>(&mut self, mut f: F) -> SQLiteResult<()> {

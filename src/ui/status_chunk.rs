@@ -29,6 +29,40 @@ impl App {
         // Build the status line.
         let mut status = Vec::with_capacity(2);
 
+        // Scales
+        match self.weight() {
+            Ok(weight_kg) => {
+                let weight_str = format!("{:.3} kg", weight_kg);
+
+                status.push(Spans::from(vec![
+                    Span::styled(
+                        "Waage: ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        weight_str,
+                        Style::default().fg(Color::Green).bg(Color::Black),
+                    ),
+                ]))
+            }
+
+            Err(err) => status.push(Spans::from(vec![
+                Span::styled(
+                    "Waage: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{}", err),
+                    Style::default().fg(Color::LightRed).bg(Color::Black),
+                ),
+            ])),
+        }
+
+        // Printer
         match self.printer {
             Ok(_) => status.push(Spans::from(vec![
                 Span::styled(
@@ -42,6 +76,7 @@ impl App {
                     Style::default().fg(Color::Green).bg(Color::Black),
                 ),
             ])),
+
             Err(err) => status.push(Spans::from(vec![
                 Span::styled(
                     "Drucker: ",
@@ -61,7 +96,7 @@ impl App {
                     Style::default().fg(Color::LightRed).bg(Color::Black),
                 ),
             ])),
-        };
+        }
 
         let paragraph = Paragraph::new(status).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, inner_chunk);

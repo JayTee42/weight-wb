@@ -130,7 +130,7 @@ impl App {
 
         if let Ok(weight_kg) = self.weight() {
             let euro = weight_kg * euro_per_kg;
-            let euro_str = format!("{:.02} €", euro);
+            let euro_str = format!("{:.2} €", euro);
 
             details.push(Spans::from(vec![
                 Span::styled(

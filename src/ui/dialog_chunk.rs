@@ -54,7 +54,7 @@ impl App {
 
         let paragraph = Paragraph::new(vec![
             Spans::from(Span::styled(
-                format!("{:.02} kg {} für {:.02} €", weight_kg, product.name, euro),
+                format!("{:.02} kg {} für {:.2} €", weight_kg, product.name, euro),
                 Style::default().fg(Color::Gray).bg(Color::Black),
             )),
             Spans::from(Span::styled(
