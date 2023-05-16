@@ -126,7 +126,7 @@ impl App {
             .info()
             .printer_model
             .as_deref()
-            .map(|model| PrinterModel::try_from(model))
+            .map(PrinterModel::try_from)
             .transpose()?;
 
         self.printer = Printer::attach(model_filter);
@@ -306,17 +306,13 @@ impl App {
                 match self.selected_dialog_action() {
                     DialogAction::Confirm => {
                         // Should we print a voucher?
-                        if action.print {
-                            if !self.print_voucher(&product, weight_kg, true)? {
-                                return Ok(());
-                            }
+                        if action.print && !self.print_voucher(&product, weight_kg, true)? {
+                            return Ok(());
                         }
 
                         // Should we add a sale?
-                        if action.sale {
-                            if !self.perform_sale(&product, weight_kg)? {
-                                return Ok(());
-                            }
+                        if action.sale && !self.perform_sale(&product, weight_kg)? {
+                            return Ok(());
                         }
 
                         // Show a success message.

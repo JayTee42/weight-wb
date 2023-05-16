@@ -9,7 +9,7 @@ use serialport::{DataBits, Error as SerialPortError, FlowControl, Parity, Serial
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    NotYetOpened,
+    NotOpenedYet,
     SerialPort(SerialPortError),
     IO(String),
     FailedToParse,
@@ -20,7 +20,7 @@ impl Display for Error {
         use Error::*;
 
         match self {
-            NotYetOpened => write!(f, "The serial port has not yet been opened."),
+            NotOpenedYet => write!(f, "The serial port has not been opened yet."),
             SerialPort(err) => write!(f, "{}", err),
             IO(err) => write!(f, "{}", err),
             FailedToParse => write!(f, "Failed to parse response."),
@@ -73,7 +73,7 @@ impl Scales {
         let guard_pair = Arc::new((Mutex::new(false), Condvar::new()));
         let guard_pair2 = Arc::clone(&guard_pair);
 
-        let weight = Arc::new(Mutex::new(Err(Error::NotYetOpened)));
+        let weight = Arc::new(Mutex::new(Err(Error::NotOpenedYet)));
         let weight2 = Arc::clone(&weight);
 
         let port_path = String::from(port_path);

@@ -52,7 +52,7 @@ impl InfoEntry {
     }
 
     fn load(con: &Connection) -> SQLiteResult<Self> {
-        Ok(con.query_row(
+        con.query_row(
             "SELECT
                 business,
                 owners,
@@ -76,7 +76,7 @@ impl InfoEntry {
                     printer_model: row.get("printer_model")?,
                 })
             },
-        )?)
+        )
     }
 
     fn store_if_missing(&self, con: &Connection) -> SQLiteResult<()> {
@@ -221,7 +221,7 @@ impl ProductEntry {
 
         products.clear();
 
-        for product in stmt.query_map((), |row| Self::load(row))? {
+        for product in stmt.query_map((), Self::load)? {
             products.push(product?);
         }
 
@@ -348,7 +348,7 @@ impl SaleEntry {
 
         sales.clear();
 
-        for sale in stmt.query_map((), |row| Self::load(row))? {
+        for sale in stmt.query_map((), Self::load)? {
             sales.push(sale?);
         }
 
