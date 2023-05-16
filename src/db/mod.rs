@@ -3,6 +3,7 @@ use std::path::Path;
 use chrono::{DateTime, Duration, Local, Utc};
 use rusqlite::{named_params, Connection, Result as SQLiteResult, Row};
 
+#[derive(Clone)]
 pub struct InfoEntry {
     pub business: String,
     pub owners: String,
@@ -133,6 +134,7 @@ impl InfoEntry {
     }
 }
 
+#[derive(Clone)]
 pub struct ProductEntry {
     id: Option<i64>,
     pub name: String,
@@ -279,6 +281,7 @@ impl ProductEntry {
     }
 }
 
+#[derive(Clone)]
 pub struct SaleEntry {
     pub date: DateTime<Utc>,
     pub name: String,
@@ -338,7 +341,7 @@ impl SaleEntry {
                 weight_kg,
                 ct_per_kg
             ) VALUES (
-                :date,
+                :date_2822,
                 :name,
                 :weight_kg,
                 :ct_per_kg
@@ -472,7 +475,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn add_sale(&self, new_sale: SaleEntry) -> SQLiteResult<()> {
+    pub fn add_sale(&self, new_sale: &SaleEntry) -> SQLiteResult<()> {
         new_sale.store(&self.con)?;
         Ok(())
     }

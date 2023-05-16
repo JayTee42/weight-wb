@@ -1,0 +1,69 @@
+use super::App;
+
+use chrono::Duration;
+
+use tui::{
+    backend::Backend,
+    layout::{Margin, Rect},
+    style::{Color, Modifier, Style},
+    text::{Span, Spans},
+    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
+    Frame,
+};
+
+impl App {
+    pub(super) fn draw_status_chunk<B: Backend>(&mut self, frame: &mut Frame<B>, chunk: Rect) {
+        // Build and render the block.
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black));
+
+        let inner_chunk = block.inner(chunk).inner(&Margin {
+            horizontal: 1,
+            vertical: 0,
+        });
+
+        frame.render_widget(block, chunk);
+
+        // Build the status line.
+        let mut status = Vec::with_capacity(2);
+
+        match self.printer {
+            Ok(_) => status.push(Spans::from(vec![
+                Span::styled(
+                    "Drucker: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "verbunden",
+                    Style::default().fg(Color::Green).bg(Color::Black),
+                ),
+            ])),
+            Err(err) => status.push(Spans::from(vec![
+                Span::styled(
+                    "Drucker: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(
+                        "{} · Nächster Versuch in {} Sekunde(n)",
+                        err,
+                        (self.reconnect_printer_date - self.now)
+                            .max(Duration::zero())
+                            .num_seconds()
+                            + 1
+                    ),
+                    Style::default().fg(Color::LightRed).bg(Color::Black),
+                ),
+            ])),
+        };
+
+        let paragraph = Paragraph::new(status).wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, inner_chunk);
+    }
+}

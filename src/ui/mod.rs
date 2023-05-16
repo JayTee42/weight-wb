@@ -20,17 +20,29 @@ use image::io::Reader as ImageReader;
 
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    layout::{Constraint, Direction, Layout},
+    widgets::{Clear, ListState},
     Frame, Terminal,
 };
+
+mod dialog_chunk;
+use dialog_chunk::DialogAction;
+
+mod message_chunk;
+use message_chunk::MessageType;
+
+mod product_chunk;
+
+mod sale_chunk;
+
+mod status_chunk;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Focus {
     Product,
     Sale,
+    Dialog,
+    Message,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -47,14 +59,30 @@ struct Action {
     pub print: bool,
 }
 
+#[derive(Clone)]
+enum Popup {
+    Dialog {
+        action: Action,
+        product: ProductEntry,
+        weight_kg: f64,
+    },
+
+    Message {
+        ty: MessageType,
+        text: String,
+    },
+}
+
 pub struct App {
     now: DateTime<Utc>,
     db: Database,
     printer: Result<Printer, AttachError>,
     reconnect_printer_date: DateTime<Utc>,
     focus: Focus,
+    popup: Option<Popup>,
     product_list_state: ListState,
     action_list_state: ListState,
+    dialog_list_state: ListState,
 }
 
 impl App {
@@ -76,15 +104,19 @@ impl App {
         }
     }
 
+    fn weight(&self) -> Result<f64, PrintError> {
+        Ok(42.3)
+    }
+
     fn reconnect_printer(&mut self) {
-        // Ensure that the printer is dropped first!
+        // Ensure that the old printer is dropped first!
         self.printer = Err(AttachError::NoPrinter);
 
         // Now try to reattach it.
         self.printer = Printer::attach(Some(Model::BrotherQL600));
 
         if self.printer.is_ok() {
-            self.reconnect_printer_date = self.now + Duration::seconds(60);
+            self.reconnect_printer_date = self.now + Duration::seconds(120);
         } else {
             self.reconnect_printer_date = self.now + Duration::seconds(10);
         }
@@ -160,77 +192,168 @@ impl App {
         }
     }
 
+    fn selected_dialog_action(&mut self) -> DialogAction {
+        match self.dialog_list_state.selected().unwrap() {
+            0 => DialogAction::Confirm,
+            1 => DialogAction::Cancel,
+
+            _ => unreachable!(),
+        }
+    }
+
+    fn select_previous_dialog_action(&mut self) {
+        let idx = self.dialog_list_state.selected().unwrap();
+
+        if idx > 0 {
+            self.dialog_list_state.select(Some(idx - 1));
+        }
+    }
+
+    fn select_next_dialog_action(&mut self) {
+        let idx = self.dialog_list_state.selected().unwrap();
+
+        if idx < (2 - 1) {
+            self.dialog_list_state.select(Some(idx + 1));
+        }
+    }
+
+    fn show_message(&mut self, ty: MessageType, text: String) {
+        self.popup = Some(Popup::Message { ty, text });
+        self.focus = Focus::Message;
+    }
+
+    fn show_dialog(&mut self, action: Action, product: ProductEntry, weight_kg: f64) {
+        self.popup = Some(Popup::Dialog {
+            action,
+            product,
+            weight_kg,
+        });
+
+        self.focus = Focus::Dialog;
+
+        // The dialog always starts with a preselection of "Ok".
+        self.dialog_list_state.select(Some(0));
+    }
+
     fn navigate(&mut self, navigation: Navigation) {
         use Navigation::*;
 
-        match self.focus {
-            Focus::Product => match navigation {
-                Up => self.select_previous_product(),
-                Down => self.select_next_product(),
-                Right => self.focus = Focus::Sale,
-                _ => (),
-            },
-
-            Focus::Sale => match navigation {
-                Up => self.select_previous_action(),
-                Down => self.select_next_action(),
-                Left => self.focus = Focus::Product,
-                _ => (),
-            },
+        match (self.focus, navigation) {
+            (Focus::Product, Up) => self.select_previous_product(),
+            (Focus::Product, Down) => self.select_next_product(),
+            (Focus::Product, Right) => self.focus = Focus::Sale,
+            (Focus::Sale, Up) => self.select_previous_action(),
+            (Focus::Sale, Down) => self.select_next_action(),
+            (Focus::Sale, Left) => self.focus = Focus::Product,
+            (Focus::Dialog, Up) => self.select_previous_dialog_action(),
+            (Focus::Dialog, Down) => self.select_next_dialog_action(),
+            _ => (),
         }
     }
 
     fn perform_action(&mut self) -> Result<(), Box<dyn Error>> {
-        // If we are not in the sale chunk or there is no product, we exit early.
-        if self.focus != Focus::Sale {
-            return Ok(());
-        }
+        match self.focus {
+            Focus::Sale => {
+                // If there is no product or weight, we exit early.
+                // Because we must cache the product in the confirmation dialog, it must be cloned.
+                let Some(product) = self.selected_product().map(Clone::clone) else {
+                    return Ok(());
+                };
 
-        // Query the selected action.
-        let action = self.selected_action();
+                let weight_kg = match self.weight() {
+                    Ok(weight) => weight,
 
-        // TODO: Obtain the weight.
-        let weight_kg = 42.3;
+                    Err(err) => {
+                        // Show an error message.
+                        self.show_message(
+                            MessageType::Error,
+                            format!("Fehler beim Zugriff auf die Waage: {}", err),
+                        );
 
-        // Should we print a voucher?
-        if action.print {
-            if !self.print_voucher(weight_kg, true)? {
-                return Ok(());
+                        return Ok(());
+                    }
+                };
+
+                // Show a confirmation dialog.
+                self.show_dialog(self.selected_action(), product, weight_kg);
+
+                Ok(())
             }
-        }
 
-        // Should we add a sale?
-        if action.sale {
-            if !self.perform_sale(weight_kg)? {
-                return Ok(());
+            Focus::Dialog => {
+                let Some(Popup::Dialog { action, product, weight_kg }) = self.popup.take() else {
+                    panic!("Dialog is focused, but not present.");
+                };
+
+                match self.selected_dialog_action() {
+                    DialogAction::Confirm => {
+                        // Should we print a voucher?
+                        if action.print {
+                            if !self.print_voucher(&product, weight_kg, true)? {
+                                return Ok(());
+                            }
+                        }
+
+                        // Should we add a sale?
+                        if action.sale {
+                            if !self.perform_sale(&product, weight_kg)? {
+                                return Ok(());
+                            }
+                        }
+
+                        // Show a success message.
+                        self.show_message(
+                            MessageType::Info,
+                            String::from("Vorgang erfolgreich abgeschlossen"),
+                        );
+                    }
+
+                    DialogAction::Cancel => {
+                        // Back to the sale chunk.
+                        self.focus = Focus::Sale;
+                    }
+                }
+
+                Ok(())
             }
+
+            Focus::Message => {
+                // Back to the sale chunk.
+                self.popup = None;
+                self.focus = Focus::Sale;
+
+                Ok(())
+            }
+
+            _ => Ok(()),
         }
-
-        // TODO: Show success message
-
-        Ok(())
     }
 
     fn print_voucher(
         &mut self,
+        product: &ProductEntry,
         weight_kg: f64,
         should_retry: bool,
     ) -> Result<bool, Box<dyn Error>> {
-        // There must be a product to continue.
-        let Some(product) = self.selected_product() else {
-            // No error message here, the error is obvious.
-            return Ok(false);
-        };
+        // Check if a printer is present.
+        let printer = match &self.printer {
+            Ok(printer) => printer,
 
-        // If there is no printer, try to reconnect it once.
-        let Ok(printer) = &self.printer else {
-            if should_retry {
-                self.reconnect_printer();
-                return self.print_voucher( weight_kg, false);
+            Err(err) => {
+                // If there is no printer, try to reconnect it once.
+                if should_retry {
+                    self.reconnect_printer();
+                    return self.print_voucher(product, weight_kg, false);
+                }
+
+                // Show an error message.
+                self.show_message(
+                    MessageType::Error,
+                    format!("Fehler beim Zugriff auf den Drucker: {}", err),
+                );
+
+                return Ok(false);
             }
-
-            // TODO: Show error message.
-            return Ok(false);
         };
 
         // Calculate the price.
@@ -263,7 +386,7 @@ impl App {
             .alignment(VoucherAlignment::Center)
             .bold(true)
             .finalize_text_component()
-            // Mass
+            // Weight
             .start_text_component(&format!("Gewicht: {:.02} kg", weight_kg))
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
@@ -303,28 +426,24 @@ impl App {
 
         // Try to print it.
         if let Err(err) = printer.print(&voucher) {
-            // Try a reconnect on USB errors once.
+            // Try a reconnect once on USB errors.
             if matches!(err, PrintError::USBError(_)) {
                 self.reconnect_printer();
-                return self.print_voucher(weight_kg, false);
+                return self.print_voucher(product, weight_kg, false);
             }
 
-            // TODO: Show error message
+            // Show an error message.
+            self.show_message(MessageType::Error, format!("Fehler beim Drucken: {}", err));
+
             return Ok(false);
         }
 
         Ok(true)
     }
 
-    fn perform_sale(&self, weight_kg: f64) -> Result<bool, Box<dyn Error>> {
-        // There must be a product to continue.
-        let Some(product) = self.selected_product() else {
-            // No error message here, the error is obvious.
-            return Ok(false);
-        };
-
+    fn perform_sale(&self, product: &ProductEntry, weight_kg: f64) -> Result<bool, Box<dyn Error>> {
         let sale = SaleEntry::new(self.now, product.name.clone(), weight_kg, product.ct_per_kg);
-        self.db.add_sale(sale)?;
+        self.db.add_sale(&sale)?;
 
         Ok(true)
     }
@@ -387,7 +506,7 @@ impl App {
             .split(frame.size());
 
         let body_chunk = vert_chunks[0];
-        let status_line_chunk = vert_chunks[1];
+        let status_chunk = vert_chunks[1];
 
         // Split the body into product and selection.
         let horz_chunks = Layout::default()
@@ -401,261 +520,61 @@ impl App {
         // Draw the chunks.
         self.draw_product_chunk(frame, product_chunk);
         self.draw_sale_chunk(frame, sale_chunk);
-        self.draw_status_line_chunk(frame, status_line_chunk);
-    }
+        self.draw_status_chunk(frame, status_chunk);
 
-    fn draw_product_chunk<B: Backend>(&mut self, frame: &mut Frame<B>, chunk: Rect) {
-        // Build and render the block.
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title("Produkte")
-            .style(
-                Style::default()
-                    .fg(if self.focus == Focus::Product {
-                        Color::LightBlue
-                    } else {
-                        Color::DarkGray
-                    })
-                    .bg(Color::Black),
-            );
+        // Is there a popup?
+        // Borrow checker shenanigans ...
+        let popup = self.popup.take();
 
-        let inner_chunk = block.inner(chunk).inner(&Margin {
-            horizontal: 1,
-            vertical: 0,
-        });
+        if let Some(popup) = &popup {
+            // Crop a centered rectangle to render the popup into.
+            let (percent_x, percent_y, min_y) = match popup {
+                Popup::Dialog { .. } => (50, 15, 7),
+                Popup::Message { .. } => (50, 10, 3),
+            };
 
-        frame.render_widget(block, chunk);
+            let popup_chunk = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage((100 - percent_y) / 2),
+                        Constraint::Min(min_y),
+                        Constraint::Percentage((100 - percent_y) / 2),
+                    ]
+                    .as_ref(),
+                )
+                .split(frame.size());
 
-        // If no product is available, we simply show an empty block with some text.
-        if self.selected_product().is_none() {
-            let empty_paragraph = Paragraph::new("Die Datenbank enthält keine Produkte.")
-                .style(Style::default().fg(Color::Red))
-                .wrap(Wrap { trim: true })
-                .alignment(Alignment::Center);
+            let popup_chunk = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(
+                    [
+                        Constraint::Percentage((100 - percent_x) / 2),
+                        Constraint::Percentage(percent_x),
+                        Constraint::Percentage((100 - percent_x) / 2),
+                    ]
+                    .as_ref(),
+                )
+                .split(popup_chunk[1])[1];
 
-            frame.render_widget(empty_paragraph, inner_chunk);
+            // Clear the background.
+            frame.render_widget(Clear, popup_chunk);
 
-            return;
-        };
+            // Render the popup.
+            match popup {
+                Popup::Dialog {
+                    action,
+                    product,
+                    weight_kg,
+                } => self.draw_dialog_chunk(frame, popup_chunk, *action, product, *weight_kg),
 
-        // Build list items for the products.
-        let items: Vec<_> = self
-            .db
-            .products()
-            .iter()
-            .map(|product| {
-                ListItem::new(product.name.as_str())
-                    .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
-            })
-            .collect();
-
-        // Build and render the product list.
-        let list = List::new(items)
-            .highlight_style(
-                Style::default()
-                    .fg(if self.focus == Focus::Product {
-                        Color::Green
-                    } else {
-                        Color::White
-                    })
-                    .bg(Color::Black),
-            )
-            .highlight_symbol("⇨ ");
-
-        frame.render_stateful_widget(list, inner_chunk, &mut self.product_list_state);
-    }
-
-    fn draw_sale_chunk<B: Backend>(&mut self, frame: &mut Frame<B>, chunk: Rect) {
-        // Build and render the block.
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title("Verkauf")
-            .style(
-                Style::default()
-                    .fg(if self.focus == Focus::Sale {
-                        Color::LightBlue
-                    } else {
-                        Color::Gray
-                    })
-                    .bg(Color::Black),
-            );
-
-        let inner_chunk = block.inner(chunk).inner(&Margin {
-            horizontal: 1,
-            vertical: 0,
-        });
-
-        frame.render_widget(block, chunk);
-
-        // If no product has been chosen, we simply show an empty block with some text.
-        let Some(product) = self.selected_product() else {
-            let empty_paragraph = Paragraph::new("Es ist kein Produkt ausgewählt.")
-                .style(Style::default().fg(Color::Red))
-                .wrap(Wrap { trim: true })
-                .alignment(Alignment::Center);
-
-            frame.render_widget(empty_paragraph, inner_chunk);
-
-            return;
-        };
-
-        // Split the block into details and actions.
-        let vert_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
-            .split(inner_chunk);
-
-        let details_chunk = vert_chunks[0];
-        let actions_chunk = vert_chunks[1];
-
-        // Build the paragraph for the details.
-        let euro_per_kg = format!("{:.2} €", (product.ct_per_kg as f64) / 100.0);
-        let mut details = Vec::with_capacity(5);
-
-        details.push(Spans::from(vec![
-            Span::styled(
-                "Name: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &product.name,
-                Style::default().fg(Color::DarkGray).bg(Color::Black),
-            ),
-        ]));
-
-        details.push(Spans::from(vec![
-            Span::styled(
-                "Kilopreis: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &euro_per_kg,
-                Style::default().fg(Color::DarkGray).bg(Color::Black),
-            ),
-        ]));
-
-        details.push(Spans::from(vec![
-            Span::styled(
-                "Zutaten: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &product.ingredients,
-                Style::default().fg(Color::DarkGray).bg(Color::Black),
-            ),
-        ]));
-
-        details.push(Spans::from(vec![
-            Span::styled(
-                "Zusatzinformationen: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &product.additional_info,
-                Style::default().fg(Color::DarkGray).bg(Color::Black),
-            ),
-        ]));
-
-        if let Some(mhd) = product.expiration_date_formatted() {
-            details.push(Spans::from(vec![
-                Span::styled(
-                    "Ungeöffnet mindestens haltbar bis: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(mhd, Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            ]));
+                Popup::Message { ty, text } => {
+                    self.draw_message_chunk(frame, popup_chunk, *ty, text)
+                }
+            }
         }
 
-        let paragraph = Paragraph::new(details).wrap(Wrap { trim: true });
-        frame.render_widget(paragraph, details_chunk);
-
-        // Build list items for the actions.
-        let item_style = Style::default().fg(Color::DarkGray).bg(Color::Black);
-
-        let items = vec![
-            ListItem::new("Verkaufen und Bon drucken").style(item_style),
-            ListItem::new("Nur verkaufen").style(item_style),
-            ListItem::new("Nur Bon drucken").style(item_style),
-        ];
-
-        // Build and render the list.
-        let list = List::new(items)
-            .highlight_style(
-                Style::default()
-                    .fg(if self.focus == Focus::Sale {
-                        Color::Green
-                    } else {
-                        Color::White
-                    })
-                    .bg(Color::Black),
-            )
-            .highlight_symbol("⇨ ");
-
-        frame.render_stateful_widget(list, actions_chunk, &mut self.action_list_state);
-    }
-
-    fn draw_status_line_chunk<B: Backend>(&mut self, frame: &mut Frame<B>, chunk: Rect) {
-        // Build and render the block.
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black));
-
-        let inner_chunk = block.inner(chunk).inner(&Margin {
-            horizontal: 1,
-            vertical: 0,
-        });
-
-        frame.render_widget(block, chunk);
-
-        // Build the status line.
-        let mut status = Vec::with_capacity(2);
-
-        match self.printer {
-            Ok(_) => status.push(Spans::from(vec![
-                Span::styled(
-                    "Drucker: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "verbunden",
-                    Style::default().fg(Color::Green).bg(Color::Black),
-                ),
-            ])),
-            Err(err) => status.push(Spans::from(vec![
-                Span::styled(
-                    "Drucker: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(
-                        "{} · Nächster Versuch in {} Sekunde(n)",
-                        err,
-                        (self.reconnect_printer_date - self.now)
-                            .max(Duration::zero())
-                            .num_seconds()
-                            + 1
-                    ),
-                    Style::default().fg(Color::LightRed).bg(Color::Black),
-                ),
-            ])),
-        };
-
-        let paragraph = Paragraph::new(status).wrap(Wrap { trim: true });
-        frame.render_widget(paragraph, inner_chunk);
+        self.popup = popup;
     }
 
     pub fn run() -> Result<(), Box<dyn Error>> {
@@ -668,8 +587,10 @@ impl App {
             printer: Err(AttachError::NoPrinter),
             reconnect_printer_date: now,
             focus: Focus::Product,
+            popup: None,
             product_list_state: Default::default(),
             action_list_state: Default::default(),
+            dialog_list_state: Default::default(),
         };
 
         // Configure the terminal.
@@ -683,7 +604,7 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
 
         // Run the app.
-        app.run_in_terminal(&mut terminal)?;
+        let result = app.run_in_terminal(&mut terminal);
 
         // Restore the terminal.
         disable_raw_mode()?;
@@ -696,6 +617,6 @@ impl App {
 
         terminal.show_cursor()?;
 
-        Ok(())
+        result
     }
 }
