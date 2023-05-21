@@ -401,12 +401,12 @@ impl App {
             .bold(true)
             .finalize_text_component()
             // Weight
-            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg))
+            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg).replacen(".", ",", 1))
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()
             // Price
-            .start_text_component(&format!("Preis: {:.2} €", euro))
+            .start_text_component(&format!("Preis: {:.2} €", euro).replacen(".", ",", 1))
             .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
             .font_size(40.0)
             .bold(true)
@@ -547,8 +547,8 @@ impl App {
         if let Some(popup) = &popup {
             // Crop a centered rectangle to render the popup into.
             let (percent_x, percent_y, min_y) = match popup {
-                Popup::Dialog { .. } => (50, 15, 7),
-                Popup::Message { .. } => (50, 10, 3),
+                Popup::Dialog { .. } => (70, 15, 7),
+                Popup::Message { .. } => (70, 10, 3),
             };
 
             let popup_chunk = Layout::default()

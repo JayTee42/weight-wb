@@ -56,7 +56,8 @@ impl App {
 
         // Build the paragraph for the details.
         let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
-        let euro_per_kg_str = format!("{:.2} €", euro_per_kg);
+        let euro_per_kg_str = format!("{:.2} €", euro_per_kg).replacen(".", ",", 1);
+        let mhd = product.expiration_date_formatted();
         let mut details = Vec::with_capacity(7);
 
         details.push(Spans::from(vec![
@@ -111,17 +112,18 @@ impl App {
             ),
         ]));
 
-        if let Some(mhd) = product.expiration_date_formatted() {
-            details.push(Spans::from(vec![
-                Span::styled(
-                    "Ungeöffnet mindestens haltbar bis: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(mhd, Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            ]));
-        }
+        details.push(Spans::from(vec![
+            Span::styled(
+                "Ungeöffnet mindestens haltbar bis: ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                mhd.as_deref().unwrap_or("-"),
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            ),
+        ]));
 
         details.push(Spans::from(Span::styled(
             "─".repeat(details_chunk.width as _),
@@ -130,7 +132,7 @@ impl App {
 
         if let Ok(weight_kg) = self.weight() {
             let euro = weight_kg * euro_per_kg;
-            let euro_str = format!("{:.2} €", euro);
+            let euro_str = format!("{:.2} €", euro).replacen(".", ",", 1);
 
             details.push(Spans::from(vec![
                 Span::styled(
@@ -139,10 +141,7 @@ impl App {
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    euro_str,
-                    Style::default().fg(Color::DarkGray).bg(Color::Black),
-                ),
+                Span::styled(euro_str, Style::default().fg(Color::White).bg(Color::Black)),
             ]));
         }
 

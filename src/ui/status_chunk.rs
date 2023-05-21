@@ -1,7 +1,5 @@
 use super::App;
 
-use chrono::Duration;
-
 use tui::{
     backend::Backend,
     layout::{Margin, Rect},
@@ -32,7 +30,7 @@ impl App {
         // Scales
         match self.weight() {
             Ok(weight_kg) => {
-                let weight_str = format!("{:.3} kg", weight_kg);
+                let weight_str = format!("{:.3} kg", weight_kg).replacen(".", ",", 1);
 
                 status.push(Spans::from(vec![
                     Span::styled(
@@ -85,14 +83,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!(
-                        "{} · Nächster Versuch in {} Sekunde(n)",
-                        err,
-                        (self.reconnect_printer_date - self.now)
-                            .max(Duration::zero())
-                            .num_seconds()
-                            + 1
-                    ),
+                    format!("{}", err),
                     Style::default().fg(Color::LightRed).bg(Color::Black),
                 ),
             ])),
