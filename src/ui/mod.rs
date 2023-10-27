@@ -292,6 +292,16 @@ impl App {
                     }
                 };
 
+                // If the weight is negative, we also show an error.
+                if weight_kg < 0.0 {
+                    self.show_message(
+                        MessageType::Error,
+                        format!("Untergewicht (< 0.0 kg) auf der Waage"),
+                    );
+
+                    return Ok(());
+                }
+
                 // Show a confirmation dialog.
                 self.show_dialog(self.selected_action(), product, weight_kg);
 
@@ -299,7 +309,12 @@ impl App {
             }
 
             Focus::Dialog => {
-                let Some(Popup::Dialog { action, product, weight_kg }) = self.popup.take() else {
+                let Some(Popup::Dialog {
+                    action,
+                    product,
+                    weight_kg,
+                }) = self.popup.take()
+                else {
                     panic!("Dialog is focused, but not present.");
                 };
 

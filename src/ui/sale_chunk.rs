@@ -131,18 +131,20 @@ impl App {
         )));
 
         if let Ok(weight_kg) = self.weight() {
-            let euro = weight_kg * euro_per_kg;
-            let euro_str = format!("{:.2} €", euro).replacen(".", ",", 1);
+            if weight_kg >= 0.0 {
+                let euro = weight_kg * euro_per_kg;
+                let euro_str = format!("{:.2} €", euro).replacen(".", ",", 1);
 
-            details.push(Spans::from(vec![
-                Span::styled(
-                    "Preis: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(euro_str, Style::default().fg(Color::White).bg(Color::Black)),
-            ]));
+                details.push(Spans::from(vec![
+                    Span::styled(
+                        "Preis: ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(euro_str, Style::default().fg(Color::White).bg(Color::Black)),
+                ]));
+            }
         }
 
         let paragraph = Paragraph::new(details).wrap(Wrap { trim: true });

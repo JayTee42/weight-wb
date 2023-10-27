@@ -201,8 +201,19 @@ impl Scales {
 
             awake()?;
 
-            // Extract a string slice from the response.
-            let weight_bytes = &weight_response[16..21];
+            // Extract the sign.
+            let sign = match weight_response[14] {
+                0x20 => 1.0,
+                0x2d => -1.0,
+
+                _ => {
+                    *weight.lock().unwrap() = Err(Error::FailedToParse);
+                    return Ok(());
+                }
+            };
+
+            // Extract the digits.
+            let weight_bytes = &weight_response[15..21];
 
             let weight_str = match str::from_utf8(weight_bytes) {
                 Ok(weight_str) => weight_str,
@@ -214,8 +225,9 @@ impl Scales {
             };
 
             // Parse the string slice.
-            match weight_str.parse::<f64>() {
-                Ok(weight_kg) => *weight.lock().unwrap() = Ok(weight_kg),
+            match weight_str.trim().parse::<f64>() {
+                Ok(weight_kg) => *weight.lock().unwrap() = Ok(sign * weight_kg),
+
                 Err(_) => {
                     *weight.lock().unwrap() = Err(Error::FailedToParse);
                     return Ok(());

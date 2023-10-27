@@ -30,7 +30,11 @@ impl App {
         // Scales
         match self.weight() {
             Ok(weight_kg) => {
-                let weight_str = format!("{:.3} kg", weight_kg).replacen(".", ",", 1);
+                let weight_str = if weight_kg >= 0.0 {
+                    format!("{:.3} kg", weight_kg).replacen(".", ",", 1)
+                } else {
+                    String::from("-----")
+                };
 
                 status.push(Spans::from(vec![
                     Span::styled(
