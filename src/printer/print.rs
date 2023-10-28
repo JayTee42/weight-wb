@@ -139,7 +139,7 @@ impl Printer {
     }
 
     pub fn print(&self, image: &GrayImage) -> Result<(), Error> {
-        // Perform a status request to obtain the current label.
+        // Perform a status request to check the error flags and obtain the current label.
         let status = self.request_status()?;
 
         if !status.error_flags.is_empty() {
@@ -152,6 +152,7 @@ impl Printer {
         // The label tells us how many dots there are to print to.
         // High resolution simply doubles the number of dots in vertical direction.
         let label_width = label.printable_dots_width;
+
         let label_length =
             label
                 .printable_dots_length
@@ -160,7 +161,7 @@ impl Printer {
         // Ensure that the image dimensions exactly match the label.
         // TODO: Should we support resizing?
         // TODO: Validate minimum / maximum for continuous labels.
-        if (label_width != image.width()) || label_length.map_or(false, |l| l != image.height()) {
+        if (label_width != image.width()) || label_length.is_some_and(|l| l != image.height()) {
             return Err(Error::WrongImageDimensions {
                 image_width: image.width(),
                 image_height: image.height(),

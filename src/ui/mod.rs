@@ -1,6 +1,6 @@
 use crate::{
     db::{Database, ProductEntry, SaleEntry},
-    printer::{AttachError, Model as PrinterModel, PrintError, Printer},
+    printer::{AttachError, LabelType, Model as PrinterModel, PrintError, Printer},
     voucher::{
         Alignment as VoucherAlignment, Builder as VoucherBuilder, Spacing as VoucherSpacing,
     },
@@ -385,11 +385,49 @@ impl App {
             }
         };
 
+        // Ask the printer for its current label.
+        let label = match printer.current_label() {
+            Ok(Some(label)) => label,
+
+            Ok(None) => {
+                // Show an error message.
+                self.show_message(
+                    MessageType::Error,
+                    format!("Fehler bei der Label-Abfrage: Es ist kein Label eingelegt."),
+                );
+
+                return Ok(false);
+            }
+
+            Err(err) => {
+                // Show an error message.
+                self.show_message(
+                    MessageType::Error,
+                    format!("Fehler bei der Label-Abfrage: {}", err),
+                );
+
+                return Ok(false);
+            }
+        };
+
+        // Extract the print width.
+        // At the moment, we only support continuous labels.
+        if !matches!(label.ty, LabelType::Continuous { .. }) {
+            // Show an error message.
+            self.show_message(
+                MessageType::Error,
+                format!("Fehler bei der Label-Abfrage: Es werden derzeit nur laufende Labels unterstützt."),
+            );
+
+            return Ok(false);
+        }
+
         // Calculate the price.
         let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
         let euro = weight_kg * euro_per_kg;
 
         // Build the voucher.
+        // Use the width propagated by the label.
         let logo = ImageReader::open("logo.png")
             .expect("Failed to load logo")
             .decode()
@@ -403,7 +441,7 @@ impl App {
             info.business, info.owners, info.street, info.locality, info.phone, info.mail
         );
 
-        let voucher = VoucherBuilder::new(696, None)
+        let voucher = VoucherBuilder::new(label.printable_dots_width, None)
             // Logo
             .start_image_component(&logo)
             .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
