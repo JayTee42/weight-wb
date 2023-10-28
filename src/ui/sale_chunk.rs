@@ -56,7 +56,7 @@ impl App {
 
         // Build the paragraph for the details.
         let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
-        let euro_per_kg_str = format!("{:.2} €", euro_per_kg).replacen(".", ",", 1);
+        let euro_per_kg_str = format!("{:.2} €", euro_per_kg).replacen('.', ",", 1);
         let mhd = product.expiration_date_formatted();
         let mut details = Vec::with_capacity(7);
 
@@ -133,7 +133,7 @@ impl App {
         if let Ok(weight_kg) = self.weight() {
             if weight_kg >= 0.0 {
                 let euro = weight_kg * euro_per_kg;
-                let euro_str = format!("{:.2} €", euro).replacen(".", ",", 1);
+                let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
 
                 details.push(Spans::from(vec![
                     Span::styled(

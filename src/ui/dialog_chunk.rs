@@ -49,10 +49,10 @@ impl App {
         let actions_chunk = vert_chunks[1];
 
         // Build the paragraph for the message.
-        let weight_str = format!("{:.3} kg", weight_kg).replacen(".", ",", 1);
+        let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
         let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
         let euro = weight_kg * euro_per_kg;
-        let euro_str = format!("{:.2} €", euro).replacen(".", ",", 1);
+        let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
 
         let paragraph = Paragraph::new(vec![
             Spans::from(Span::styled(

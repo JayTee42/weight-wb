@@ -16,6 +16,7 @@ pub struct InfoEntry {
 }
 
 impl InfoEntry {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         business: String,
         owners: String,

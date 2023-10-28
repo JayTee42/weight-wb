@@ -296,7 +296,7 @@ impl App {
                 if weight_kg < 0.0 {
                     self.show_message(
                         MessageType::Error,
-                        format!("Untergewicht (< 0.0 kg) auf der Waage"),
+                        String::from("Untergewicht (< 0.0 kg) auf der Waage"),
                     );
 
                     return Ok(());
@@ -393,7 +393,7 @@ impl App {
                 // Show an error message.
                 self.show_message(
                     MessageType::Error,
-                    format!("Fehler bei der Label-Abfrage: Es ist kein Label eingelegt."),
+                    String::from("Fehler bei der Label-Abfrage: Es ist kein Label eingelegt."),
                 );
 
                 return Ok(false);
@@ -416,7 +416,7 @@ impl App {
             // Show an error message.
             self.show_message(
                 MessageType::Error,
-                format!("Fehler bei der Label-Abfrage: Es werden derzeit nur laufende Labels unterstützt."),
+                String::from("Fehler bei der Label-Abfrage: Es werden derzeit nur laufende Labels unterstützt."),
             );
 
             return Ok(false);
@@ -454,12 +454,12 @@ impl App {
             .bold(true)
             .finalize_text_component()
             // Weight
-            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg).replacen(".", ",", 1))
+            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg).replacen('.', ",", 1))
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()
             // Price
-            .start_text_component(&format!("Preis: {:.2} €", euro).replacen(".", ",", 1))
+            .start_text_component(&format!("Preis: {:.2} €", euro).replacen('.', ",", 1))
             .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
             .font_size(40.0)
             .bold(true)

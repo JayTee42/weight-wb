@@ -31,7 +31,7 @@ impl App {
         match self.weight() {
             Ok(weight_kg) => {
                 let weight_str = if weight_kg >= 0.0 {
-                    format!("{:.3} kg", weight_kg).replacen(".", ",", 1)
+                    format!("{:.3} kg", weight_kg).replacen('.', ",", 1)
                 } else {
                     String::from("-----")
                 };
