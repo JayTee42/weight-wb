@@ -57,6 +57,7 @@ impl App {
         // Build the paragraph for the details.
         let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
         let euro_per_kg_str = format!("{:.2} €", euro_per_kg).replacen('.', ",", 1);
+        let storage_temp = product.storage_temp_formatted();
         let mhd = product.expiration_date_formatted();
         let mut details = Vec::with_capacity(7);
 
@@ -114,7 +115,20 @@ impl App {
 
         details.push(Spans::from(vec![
             Span::styled(
-                "Ungeöffnet mindestens haltbar bis: ",
+                "Lagertemperatur: ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                storage_temp.as_deref().unwrap_or("-"),
+                Style::default().fg(Color::DarkGray).bg(Color::Black),
+            ),
+        ]));
+
+        details.push(Spans::from(vec![
+            Span::styled(
+                "Mindesthaltbarkeitsdatum: ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),

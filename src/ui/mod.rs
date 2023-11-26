@@ -433,7 +433,18 @@ impl App {
             .decode()
             .expect("Failed to decode logo");
 
+        let storage_temp = product.storage_temp_formatted();
         let mhd = product.expiration_date_formatted();
+
+        let storage = match (storage_temp, mhd) {
+            (None, None) => String::from(""),
+            (Some(temp), None) => format!("Lagerungstemperatur: {}", temp),
+            (None, Some(mhd)) => format!("Ungeöffnet mindestens haltbar bis: {}", mhd),
+            (Some(temp), Some(mhd)) => {
+                format!("Ungeöffnet bei {} mindestens haltbar bis: {}", temp, mhd)
+            }
+        };
+
         let info = self.db.info();
 
         let trailer = format!(
@@ -474,11 +485,8 @@ impl App {
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()
-            // Mhd
-            .start_text_component(&format!(
-                "Ungeöffnet mindestens haltbar bis: {}",
-                mhd.as_deref().unwrap_or("-")
-            ))
+            // Storage
+            .start_text_component(&storage)
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()

@@ -166,6 +166,7 @@ pub struct ProductEntry {
     pub ct_per_kg: u64,
     pub ingredients: String,
     pub additional_info: String,
+    pub storage_temp: Option<f64>,
     pub expiration_days: Option<u64>,
 }
 
@@ -175,6 +176,7 @@ impl ProductEntry {
         ct_per_kg: u64,
         ingredients: String,
         additional_info: String,
+        storage_temp: Option<f64>,
         expiration_days: Option<u64>,
     ) -> Self {
         Self {
@@ -183,8 +185,13 @@ impl ProductEntry {
             ct_per_kg,
             ingredients,
             additional_info,
+            storage_temp,
             expiration_days,
         }
+    }
+
+    pub fn storage_temp_formatted(&self) -> Option<String> {
+        self.storage_temp.map(|temp| format!("{:.1}°C", temp))
     }
 
     pub fn expiration_date(&self) -> Option<DateTime<Local>> {
@@ -204,6 +211,7 @@ impl ProductEntry {
             ct_per_kg: row.get("ct_per_kg")?,
             ingredients: row.get("ingredients")?,
             additional_info: row.get("additional_info")?,
+            storage_temp: row.get("storage_temp")?,
             expiration_days: row.get("expiration_days")?,
         })
     }
@@ -216,6 +224,7 @@ impl ProductEntry {
                 ct_per_kg,
                 ingredients,
                 additional_info,
+                storage_temp,
                 expiration_days
             FROM products",
         )?;
@@ -243,6 +252,7 @@ impl ProductEntry {
                     ct_per_kg,
                     ingredients,
                     additional_info,
+                    storage_temp,
                     expiration_days
                 ) VALUES (
                     :id,
@@ -250,6 +260,7 @@ impl ProductEntry {
                     :ct_per_kg,
                     :ingredients,
                     :additional_info,
+                    :storage_temp,
                     :expiration_days
                 )",
                 named_params! {
@@ -258,6 +269,7 @@ impl ProductEntry {
                     ":ct_per_kg": self.ct_per_kg,
                     ":ingredients": self.ingredients,
                     ":additional_info": self.additional_info,
+                    ":storage_temp": self.storage_temp,
                     ":expiration_days": self.expiration_days,
                 },
             )?;
@@ -269,12 +281,14 @@ impl ProductEntry {
                     ct_per_kg,
                     ingredients,
                     additional_info,
+                    storage_temp,
                     expiration_days
                 ) VALUES (
                     :name,
                     :ct_per_kg,
                     :ingredients,
                     :additional_info,
+                    :storage_temp,
                     :expiration_days
                 )",
                 named_params! {
@@ -282,6 +296,7 @@ impl ProductEntry {
                     ":ct_per_kg": self.ct_per_kg,
                     ":ingredients": self.ingredients,
                     ":additional_info": self.additional_info,
+                    ":storage_temp": self.storage_temp,
                     ":expiration_days": self.expiration_days,
                 },
             )?;
@@ -417,6 +432,7 @@ impl Database {
                 ct_per_kg INTEGER NOT NULL,
                 ingredients TEXT NOT NULL,
                 additional_info TEXT NOT NULL,
+                storage_temp REAL,
                 expiration_days INTEGER
             )",
             (),
