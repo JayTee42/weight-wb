@@ -67,7 +67,7 @@ enum Popup {
     Dialog {
         action: Action,
         product: ProductEntry,
-        weight_kg: f64,
+        weight_kg: Option<f64>,
     },
 
     Message {
@@ -240,7 +240,7 @@ impl App {
         self.focus = Focus::Message;
     }
 
-    fn show_dialog(&mut self, action: Action, product: ProductEntry, weight_kg: f64) {
+    fn show_dialog(&mut self, action: Action, product: ProductEntry, weight_kg: Option<f64>) {
         self.popup = Some(Popup::Dialog {
             action,
             product,
@@ -278,29 +278,36 @@ impl App {
                     return Ok(());
                 };
 
-                let weight_kg = match self.weight() {
-                    Ok(weight) => weight,
+                let weight_kg = if product.is_kg_price {
+                    // We need a weight, this is no fixed-price product.
+                    let weight_kg = match self.weight() {
+                        Ok(weight) => weight,
 
-                    Err(err) => {
-                        // Show an error message.
+                        Err(err) => {
+                            // Show an error message.
+                            self.show_message(
+                                MessageType::Error,
+                                format!("Fehler beim Zugriff auf die Waage: {}", err),
+                            );
+
+                            return Ok(());
+                        }
+                    };
+
+                    // If the weight is negative, we also show an error.
+                    if weight_kg < 0.0 {
                         self.show_message(
                             MessageType::Error,
-                            format!("Fehler beim Zugriff auf die Waage: {}", err),
+                            String::from("Untergewicht (< 0.0 kg) auf der Waage"),
                         );
 
                         return Ok(());
                     }
+
+                    Some(weight_kg)
+                } else {
+                    None
                 };
-
-                // If the weight is negative, we also show an error.
-                if weight_kg < 0.0 {
-                    self.show_message(
-                        MessageType::Error,
-                        String::from("Untergewicht (< 0.0 kg) auf der Waage"),
-                    );
-
-                    return Ok(());
-                }
 
                 // Show a confirmation dialog.
                 self.show_dialog(self.selected_action(), product, weight_kg);
@@ -361,7 +368,7 @@ impl App {
     fn print_voucher(
         &mut self,
         product: &ProductEntry,
-        weight_kg: f64,
+        weight_kg: Option<f64>,
         should_retry: bool,
     ) -> Result<bool, Box<dyn Error>> {
         // Check if a printer is present.
@@ -423,8 +430,17 @@ impl App {
         }
 
         // Calculate the price.
-        let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
-        let euro = weight_kg * euro_per_kg;
+        let (weight_str, price_ct) = if product.is_kg_price {
+            let weight_kg = weight_kg.expect("Product with kg price needs weight");
+            let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
+            let price_ct = weight_kg * (product.price_ct as f64);
+
+            (weight_str, price_ct)
+        } else {
+            (String::from("-"), product.price_ct as f64)
+        };
+
+        let price_str = format!("{:.2} €", price_ct / 100.0).replacen('.', ",", 1);
 
         // Build the voucher.
         // Use the width propagated by the label.
@@ -465,12 +481,12 @@ impl App {
             .bold(true)
             .finalize_text_component()
             // Weight
-            .start_text_component(&format!("Gewicht: {:.3} kg", weight_kg).replacen('.', ",", 1))
+            .start_text_component(&format!("Gewicht: {}", weight_str))
             .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
             .font_size(25.0)
             .finalize_text_component()
             // Price
-            .start_text_component(&format!("Preis: {:.2} €", euro).replacen('.', ",", 1))
+            .start_text_component(&format!("Preis: {}", price_str))
             .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
             .font_size(40.0)
             .bold(true)
@@ -519,8 +535,12 @@ impl App {
         Ok(true)
     }
 
-    fn perform_sale(&self, product: &ProductEntry, weight_kg: f64) -> Result<bool, Box<dyn Error>> {
-        let sale = SaleEntry::new(self.now, product.name.clone(), weight_kg, product.ct_per_kg);
+    fn perform_sale(
+        &self,
+        product: &ProductEntry,
+        weight_kg: Option<f64>,
+    ) -> Result<bool, Box<dyn Error>> {
+        let sale = SaleEntry::new(self.now, product.name.clone(), weight_kg, product.price_ct);
         self.db.add_sale(&sale)?;
 
         Ok(true)

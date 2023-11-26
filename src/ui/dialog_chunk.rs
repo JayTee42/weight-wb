@@ -23,7 +23,7 @@ impl App {
         chunk: Rect,
         action: Action,
         product: &ProductEntry,
-        weight_kg: f64,
+        weight_kg: Option<f64>,
     ) {
         // Build and render the block.
         let block = Block::default()
@@ -49,14 +49,24 @@ impl App {
         let actions_chunk = vert_chunks[1];
 
         // Build the paragraph for the message.
-        let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
-        let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
-        let euro = weight_kg * euro_per_kg;
-        let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
+        let sale_str = if product.is_kg_price {
+            let weight_kg = weight_kg.expect("Product with kg price needs weight");
+            let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
+            let euro_per_kg = (product.price_ct as f64) / 100.0;
+            let euro = weight_kg * euro_per_kg;
+            let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
+
+            format!("{} {} für {}", weight_str, product.name, euro_str)
+        } else {
+            let euro = (product.price_ct as f64) / 100.0;
+            let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
+
+            format!("{} für {}", product.name, euro_str)
+        };
 
         let paragraph = Paragraph::new(vec![
             Spans::from(Span::styled(
-                format!("{} {} für {}", weight_str, product.name, euro_str),
+                sale_str,
                 Style::default().fg(Color::Gray).bg(Color::Black),
             )),
             Spans::from(Span::styled(

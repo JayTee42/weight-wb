@@ -55,8 +55,8 @@ impl App {
         let actions_chunk = vert_chunks[1];
 
         // Build the paragraph for the details.
-        let euro_per_kg = (product.ct_per_kg as f64) / 100.0;
-        let euro_per_kg_str = format!("{:.2} €", euro_per_kg).replacen('.', ",", 1);
+        let euro: f64 = (product.price_ct as f64) / 100.0;
+        let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
         let storage_temp = product.storage_temp_formatted();
         let mhd = product.expiration_date_formatted();
         let mut details = Vec::with_capacity(7);
@@ -76,13 +76,17 @@ impl App {
 
         details.push(Spans::from(vec![
             Span::styled(
-                "Kilopreis: ",
+                if product.is_kg_price {
+                    "Kilopreis: "
+                } else {
+                    "Festpreis: "
+                },
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                &euro_per_kg_str,
+                &euro_str,
                 Style::default().fg(Color::DarkGray).bg(Color::Black),
             ),
         ]));
@@ -144,20 +148,21 @@ impl App {
             Style::default().fg(Color::DarkGray).bg(Color::Black),
         )));
 
-        if let Ok(weight_kg) = self.weight() {
-            if weight_kg >= 0.0 {
-                let euro = weight_kg * euro_per_kg;
-                let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
+        if product.is_kg_price {
+            if let Ok(weight_kg) = self.weight() {
+                if weight_kg >= 0.0 {
+                    let euro_str = format!("{:.2} €", weight_kg * euro).replacen('.', ",", 1);
 
-                details.push(Spans::from(vec![
-                    Span::styled(
-                        "Preis: ",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(euro_str, Style::default().fg(Color::White).bg(Color::Black)),
-                ]));
+                    details.push(Spans::from(vec![
+                        Span::styled(
+                            "Preis: ",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(euro_str, Style::default().fg(Color::White).bg(Color::Black)),
+                    ]));
+                }
             }
         }
 

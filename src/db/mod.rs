@@ -163,7 +163,8 @@ impl InfoEntry {
 pub struct ProductEntry {
     id: Option<i64>,
     pub name: String,
-    pub ct_per_kg: u64,
+    pub price_ct: u64,
+    pub is_kg_price: bool,
     pub ingredients: String,
     pub additional_info: String,
     pub storage_temp: Option<f64>,
@@ -173,7 +174,8 @@ pub struct ProductEntry {
 impl ProductEntry {
     pub fn new(
         name: String,
-        ct_per_kg: u64,
+        price_ct: u64,
+        is_kg_price: bool,
         ingredients: String,
         additional_info: String,
         storage_temp: Option<f64>,
@@ -182,7 +184,8 @@ impl ProductEntry {
         Self {
             id: None,
             name,
-            ct_per_kg,
+            price_ct,
+            is_kg_price,
             ingredients,
             additional_info,
             storage_temp,
@@ -208,7 +211,8 @@ impl ProductEntry {
         Ok(Self {
             id: Some(row.get("id")?),
             name: row.get("name")?,
-            ct_per_kg: row.get("ct_per_kg")?,
+            price_ct: row.get("price_ct")?,
+            is_kg_price: row.get("is_kg_price")?,
             ingredients: row.get("ingredients")?,
             additional_info: row.get("additional_info")?,
             storage_temp: row.get("storage_temp")?,
@@ -221,7 +225,8 @@ impl ProductEntry {
             "SELECT
                 id,
                 name,
-                ct_per_kg,
+                price_ct,
+                is_kg_price,
                 ingredients,
                 additional_info,
                 storage_temp,
@@ -249,7 +254,8 @@ impl ProductEntry {
                 "REPLACE INTO product (
                     id,
                     name,
-                    ct_per_kg,
+                    price_ct,
+                    is_kg_price,
                     ingredients,
                     additional_info,
                     storage_temp,
@@ -257,7 +263,8 @@ impl ProductEntry {
                 ) VALUES (
                     :id,
                     :name,
-                    :ct_per_kg,
+                    :price_ct,
+                    :is_kg_price,
                     :ingredients,
                     :additional_info,
                     :storage_temp,
@@ -266,7 +273,8 @@ impl ProductEntry {
                 named_params! {
                     ":id": id,
                     ":name": self.name,
-                    ":ct_per_kg": self.ct_per_kg,
+                    ":price_ct": self.price_ct,
+                    ":is_kg_price": self.is_kg_price,
                     ":ingredients": self.ingredients,
                     ":additional_info": self.additional_info,
                     ":storage_temp": self.storage_temp,
@@ -278,14 +286,16 @@ impl ProductEntry {
             con.execute(
                 "INSERT INTO product (
                     name,
-                    ct_per_kg,
+                    price_ct,
+                    is_kg_price,
                     ingredients,
                     additional_info,
                     storage_temp,
                     expiration_days
                 ) VALUES (
                     :name,
-                    :ct_per_kg,
+                    :price_ct,
+                    :is_kg_price,
                     :ingredients,
                     :additional_info,
                     :storage_temp,
@@ -293,7 +303,8 @@ impl ProductEntry {
                 )",
                 named_params! {
                     ":name": self.name,
-                    ":ct_per_kg": self.ct_per_kg,
+                    ":price_ct": self.price_ct,
+                    ":is_kg_price": self.is_kg_price,
                     ":ingredients": self.ingredients,
                     ":additional_info": self.additional_info,
                     ":storage_temp": self.storage_temp,
@@ -325,17 +336,17 @@ impl ProductEntry {
 pub struct SaleEntry {
     pub date: DateTime<Utc>,
     pub name: String,
-    pub weight_kg: f64,
-    pub ct_per_kg: u64,
+    pub weight_kg: Option<f64>,
+    pub price_ct: u64,
 }
 
 impl SaleEntry {
-    pub fn new(date: DateTime<Utc>, name: String, weight_kg: f64, ct_per_kg: u64) -> Self {
+    pub fn new(date: DateTime<Utc>, name: String, weight_kg: Option<f64>, price_ct: u64) -> Self {
         Self {
             date,
             name,
             weight_kg,
-            ct_per_kg,
+            price_ct,
         }
     }
 
@@ -348,7 +359,7 @@ impl SaleEntry {
                 .into(),
             name: row.get("name")?,
             weight_kg: row.get("weight_kg")?,
-            ct_per_kg: row.get("ct_per_kg")?,
+            price_ct: row.get("price_ct")?,
         })
     }
 
@@ -358,7 +369,7 @@ impl SaleEntry {
                 date_2822,
                 name,
                 weight_kg,
-                ct_per_kg
+                price_ct
             FROM sales",
         )?;
 
@@ -379,18 +390,18 @@ impl SaleEntry {
                 date_2822,
                 name,
                 weight_kg,
-                ct_per_kg
+                price_ct
             ) VALUES (
                 :date_2822,
                 :name,
                 :weight_kg,
-                :ct_per_kg
+                :price_ct
             )",
             named_params! {
                 ":date_2822": self.date.to_rfc2822(),
                 ":name": self.name,
                 ":weight_kg": self.weight_kg,
-                ":ct_per_kg": self.ct_per_kg,
+                ":price_ct": self.price_ct,
             },
         )?;
 
@@ -429,7 +440,8 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                ct_per_kg INTEGER NOT NULL,
+                price_ct INTEGER NOT NULL,
+                is_kg_price INTEGER NOT NULL,
                 ingredients TEXT NOT NULL,
                 additional_info TEXT NOT NULL,
                 storage_temp REAL,
@@ -443,8 +455,8 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date_2822 TEXT NOT NULL,
                 name TEXT NOT NULL,
-                weight_kg REAL NOT NULL,
-                ct_per_kg INTEGER NOT NULL
+                weight_kg REAL,
+                price_ct INTEGER NOT NULL
             )",
             (),
         )?;
