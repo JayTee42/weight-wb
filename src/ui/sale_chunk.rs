@@ -173,8 +173,8 @@ impl App {
         let item_style = Style::default().fg(Color::DarkGray).bg(Color::Black);
 
         let items = vec![
-            ListItem::new("Verkaufen und Bon drucken").style(item_style),
-            ListItem::new("Nur verkaufen").style(item_style),
+            ListItem::new("Verbuchen und Bon drucken").style(item_style),
+            ListItem::new("Nur verbuchen").style(item_style),
             ListItem::new("Nur Bon drucken").style(item_style),
         ];
 

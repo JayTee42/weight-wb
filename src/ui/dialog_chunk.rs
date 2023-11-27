@@ -70,7 +70,7 @@ impl App {
                 Style::default().fg(Color::Gray).bg(Color::Black),
             )),
             Spans::from(Span::styled(
-                format!("Verkaufen: {}", if action.sale { "ja" } else { "nein" }),
+                format!("Verbuchen: {}", if action.sale { "ja" } else { "nein" }),
                 Style::default().fg(Color::Gray).bg(Color::Black),
             )),
             Spans::from(Span::styled(
