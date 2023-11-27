@@ -14,9 +14,6 @@ const VENDOR_ID: u16 = 0x04f9;
 /// This means they get a different USB product ID and we cannot use them.
 const MASS_STORAGE_PRODUCT_IDS: &[u16] = &[0x2049];
 
-/// Timeout for all IO functions
-const IO_TIMEOUT: Duration = Duration::from_millis(500);
-
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
     USBError(USBError),
@@ -165,8 +162,10 @@ impl Printer {
 
         // Clear outstanding jobs by sending a bunch of "invalid" commands.
         // Then initialize the printer.
-        printer.write(&[0x00; 350])?;
-        printer.write(&[0x1b, 0x40])?;
+        let invalidate_timeout = Duration::from_millis(500);
+
+        printer.write(&[0x00; 350], invalidate_timeout)?;
+        printer.write(&[0x1b, 0x40], invalidate_timeout)?;
 
         Ok(printer)
     }
@@ -179,12 +178,12 @@ impl Printer {
         &self.serial_number
     }
 
-    pub(super) fn read(&self, data: &mut [u8]) -> Result<usize, USBError> {
-        self.handle.read_bulk(self.in_addr, data, IO_TIMEOUT)
+    pub(super) fn read(&self, data: &mut [u8], timeout: Duration) -> Result<usize, USBError> {
+        self.handle.read_bulk(self.in_addr, data, timeout)
     }
 
-    pub(super) fn write(&self, data: &[u8]) -> Result<(), USBError> {
-        let written_bytes = self.handle.write_bulk(self.out_addr, data, IO_TIMEOUT)?;
+    pub(super) fn write(&self, data: &[u8], timeout: Duration) -> Result<(), USBError> {
+        let written_bytes = self.handle.write_bulk(self.out_addr, data, timeout)?;
 
         // Can this happen at all ... ? Never seen it ...
         if written_bytes != data.len() {

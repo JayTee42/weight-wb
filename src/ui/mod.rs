@@ -9,7 +9,6 @@ use crate::{
 
 use std::error::Error;
 use std::io;
-use std::thread;
 
 use chrono::{DateTime, Duration, Utc};
 
@@ -528,9 +527,6 @@ impl App {
 
             return Ok(false);
         }
-
-        // Sleep for a moment until we are done printing.
-        thread::sleep(Duration::seconds(2).to_std().unwrap());
 
         Ok(true)
     }

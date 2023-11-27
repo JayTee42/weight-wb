@@ -1,7 +1,8 @@
-use super::{Printer, StatusError, StatusErrorFlags};
+use super::{PhaseType, Printer, StatusError, StatusErrorFlags, StatusType};
 
 use std::fmt::Display;
 use std::mem;
+use std::time::Duration;
 
 use image::GrayImage;
 use rusb::Error as USBError;
@@ -11,6 +12,14 @@ pub enum Error {
     USBError(USBError),
     StatusError(StatusError),
     StatusErrorFlags(StatusErrorFlags),
+    UnexpectedStatusType {
+        expected: StatusType,
+        got: StatusType,
+    },
+    UnexpectedPhaseType {
+        expected: PhaseType,
+        got: PhaseType,
+    },
     NoMedia,
     WrongImageDimensions {
         image_width: u32,
@@ -29,6 +38,20 @@ impl Display for Error {
             StatusError(inner) => write!(f, "A status request has failed: {}", inner),
             StatusErrorFlags(flags) => {
                 write!(f, "The status contains some error flags: {:?}", flags)
+            }
+            UnexpectedStatusType { expected, got } => {
+                write!(
+                    f,
+                    "Received unexpected status type: expected {:?}, got {:?}",
+                    expected, got
+                )
+            }
+            UnexpectedPhaseType { expected, got } => {
+                write!(
+                    f,
+                    "Received unexpected phase type: expected {:?}, got {:?}",
+                    expected, got
+                )
             }
             NoMedia => write!(f, "The printer is not loaded. Please insert media."),
             WrongImageDimensions {
@@ -139,8 +162,14 @@ impl Printer {
     }
 
     pub fn print(&self, image: &GrayImage) -> Result<(), Error> {
+        use PhaseType::*;
+        use StatusType::*;
+
+        // The "normal" timeout for the first status request and the print commands
+        let timeout = Duration::from_millis(500);
+
         // Perform a status request to check the error flags and obtain the current label.
-        let status = self.request_status()?;
+        let status = self.request_status(timeout)?;
 
         if !status.error_flags.is_empty() {
             return Err(Error::StatusErrorFlags(status.error_flags));
@@ -171,7 +200,7 @@ impl Printer {
         }
 
         // Turn the printer into raster mode (not all of them need this ... ?).
-        self.write(&[0x1B, 0x69, 0x61, 0x01])?;
+        self.write(&[0x1B, 0x69, 0x61, 0x01], timeout)?;
 
         // Assemble the print info flags.
         let mut print_info_flags = PrintInfoFlags::VALIDATE_KIND
@@ -187,21 +216,24 @@ impl Printer {
         let (label_ty, label_width, label_length) = label.ty.as_bytes();
         let lines_count_bytes = image.height().to_le_bytes();
 
-        self.write(&[
-            0x1b,
-            0x69,
-            0x7a,
-            print_info_flags.bits(),
-            label_ty,
-            label_width,
-            label_length,
-            lines_count_bytes[0],
-            lines_count_bytes[1],
-            lines_count_bytes[2],
-            lines_count_bytes[3],
-            0x00, // Starting page (we only support to print one at a time).
-            0x00, // Reserved
-        ])?;
+        self.write(
+            &[
+                0x1b,
+                0x69,
+                0x7a,
+                print_info_flags.bits(),
+                label_ty,
+                label_width,
+                label_length,
+                lines_count_bytes[0],
+                lines_count_bytes[1],
+                lines_count_bytes[2],
+                lines_count_bytes[3],
+                0x00, // Starting page (we only support to print one at a time).
+                0x00, // Reserved
+            ],
+            timeout,
+        )?;
 
         // Specify the modes to use. Currently, there is only auto-cut.
         let mut mode_flags = PrintModeFlags::empty();
@@ -210,12 +242,12 @@ impl Printer {
             mode_flags |= PrintModeFlags::AUTO_CUT;
         }
 
-        self.write(&[0x1b, 0x69, 0x4d, mode_flags.bits()])?;
+        self.write(&[0x1b, 0x69, 0x4d, mode_flags.bits()], timeout)?;
 
         // Specify the auto-cut rate if auto-cut is enabled.
         // We hardcode 1 (aka "Cut after every page") because we only print one page at all.
         if self.print_config.auto_cut {
-            self.write(&[0x1b, 0x69, 0x41, 0x01])?;
+            self.write(&[0x1b, 0x69, 0x41, 0x01], timeout)?;
         }
 
         // Specify the expanded (extended?) modes.
@@ -225,15 +257,18 @@ impl Printer {
             expanded_mode_flags |= ExpandedPrintModeFlags::HIGHRES;
         }
 
-        self.write(&[0x1b, 0x69, 0x4b, expanded_mode_flags.bits()])?;
+        self.write(&[0x1b, 0x69, 0x4b, expanded_mode_flags.bits()], timeout)?;
 
         // Specify the feed margin.
         let feed_margin_bytes = label.margin_dots_length.to_le_bytes();
-        self.write(&[0x1b, 0x69, 0x64, feed_margin_bytes[0], feed_margin_bytes[1]])?;
+        self.write(
+            &[0x1b, 0x69, 0x64, feed_margin_bytes[0], feed_margin_bytes[1]],
+            timeout,
+        )?;
 
         // Disable compression for now.
         // TODO: Maybe support it in the future?
-        self.write(&[0x4d, 0x00])?;
+        self.write(&[0x4d, 0x00], timeout)?;
 
         // Walk the raster lines.
         let mut line_command =
@@ -264,11 +299,71 @@ impl Printer {
             }
 
             // Send the line to the printer.
-            self.write(&line_command)?;
+            self.write(&line_command, timeout)?;
+        }
+
+        // Wait for the print phase change.
+        // From here on, we use a longer timeout as we have to wait for the printer to finish.
+        // However, in my setup, this is not even necessary because the printer immediately
+        // returns zero-length packets while it is printing.
+        let ext_timeout = Duration::from_secs(5);
+        let status = self.read_status_response(ext_timeout)?;
+
+        if !status.error_flags.is_empty() {
+            return Err(Error::StatusErrorFlags(status.error_flags));
+        }
+
+        if status.status_type != PhaseChange {
+            return Err(Error::UnexpectedStatusType {
+                expected: PhaseChange,
+                got: status.status_type,
+            });
+        }
+
+        if status.phase_type != Printing {
+            return Err(Error::UnexpectedPhaseType {
+                expected: Printing,
+                got: status.phase_type,
+            });
         }
 
         // Commit the print with feeding.
-        self.write(&[0x1a])?;
+        self.write(&[0x1a], timeout)?;
+
+        // Wait for the completion.
+        let status = self.read_status_response(ext_timeout)?;
+
+        if !status.error_flags.is_empty() {
+            return Err(Error::StatusErrorFlags(status.error_flags));
+        }
+
+        if status.status_type != PrintingCompleted {
+            return Err(Error::UnexpectedStatusType {
+                expected: PrintingCompleted,
+                got: status.status_type,
+            });
+        }
+
+        // Wait for the waiting phase change.
+        let status = self.read_status_response(ext_timeout)?;
+
+        if !status.error_flags.is_empty() {
+            return Err(Error::StatusErrorFlags(status.error_flags));
+        }
+
+        if status.status_type != PhaseChange {
+            return Err(Error::UnexpectedStatusType {
+                expected: PhaseChange,
+                got: status.status_type,
+            });
+        }
+
+        if status.phase_type != Waiting {
+            return Err(Error::UnexpectedPhaseType {
+                expected: Waiting,
+                got: status.phase_type,
+            });
+        }
 
         Ok(())
     }

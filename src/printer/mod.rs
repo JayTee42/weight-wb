@@ -14,7 +14,7 @@ pub use usb::Error as AttachError;
 
 /// The status response is the basic feedback method from the printer to the host.
 mod status;
-pub use status::{Error as StatusError, ErrorFlags as StatusErrorFlags};
+pub use status::{Error as StatusError, ErrorFlags as StatusErrorFlags, PhaseType, StatusType};
 
 /// Printing requires separate commands and the conversion of the input picture into raster lines.
 mod print;

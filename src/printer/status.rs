@@ -1,6 +1,7 @@
 use super::{Label, LabelType, Printer};
 
 use std::fmt::Display;
+use std::time::Duration;
 
 use rusb::Error as USBError;
 
@@ -59,8 +60,8 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub(super) enum StatusType {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum StatusType {
     StatusReply,
     PrintingCompleted,
     ErrorOccurred,
@@ -84,8 +85,8 @@ impl From<u8> for StatusType {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub(super) enum PhaseType {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PhaseType {
     Waiting,
     Printing,
     Unknown(u8),
@@ -133,18 +134,24 @@ pub(super) struct Status {
 }
 
 impl Printer {
-    pub(super) fn request_status(&self) -> Result<Status, Error> {
-        self.write(&[0x1b, 0x69, 0x53])?;
-        self.read_status_response()
+    pub(super) fn request_status(&self, timeout: Duration) -> Result<Status, Error> {
+        self.write(&[0x1b, 0x69, 0x53], timeout)?;
+        self.read_status_response(timeout)
     }
 
-    pub(super) fn read_status_response(&self) -> Result<Status, Error> {
+    pub(super) fn read_status_response(&self, timeout: Duration) -> Result<Status, Error> {
         // Read the status data. It has always 32 bytes.
+        // Skip zero-length packets.
         let mut data = [0u8; 32];
-        let read_bytes = self.read(&mut data)?;
 
-        if read_bytes != 32 {
-            return Err(Error::WrongResponseSizeUSB(read_bytes));
+        loop {
+            let read_bytes = self.read(&mut data, timeout)?;
+
+            match read_bytes {
+                0 => continue,
+                32 => break,
+                _ => return Err(Error::WrongResponseSizeUSB(read_bytes)),
+            }
         }
 
         // Check head mark and length.

@@ -1,5 +1,7 @@
 use super::{Model, Printer, StatusError};
 
+use std::time::Duration;
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum LabelType {
     Continuous { width: u8 },
@@ -135,6 +137,6 @@ impl TryFrom<(Model, LabelType)> for Label {
 
 impl Printer {
     pub fn current_label(&self) -> Result<Option<Label>, StatusError> {
-        Ok(self.request_status()?.label)
+        Ok(self.request_status(Duration::from_millis(500))?.label)
     }
 }
