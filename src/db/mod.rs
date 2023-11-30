@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use chrono::{DateTime, Duration, Local, Utc};
-use rusqlite::{named_params, Connection, Result as SQLiteResult, Row};
+use rusqlite::{named_params, Connection, Error as SQLiteError, Result as SQLiteResult, Row};
+
+const DB_VERSION: u32 = 1;
 
 #[derive(Clone)]
 pub struct InfoEntry {
@@ -84,6 +86,7 @@ impl InfoEntry {
         con.execute(
             "INSERT OR IGNORE INTO info (
                 _lock,
+                version,
                 business,
                 owners,
                 street,
@@ -94,6 +97,7 @@ impl InfoEntry {
                 printer_model
             ) VALUES (
                 :_lock,
+                :version,
                 :business,
                 :owners,
                 :street,
@@ -105,6 +109,7 @@ impl InfoEntry {
             )",
             named_params! {
                 ":_lock": 0,
+                ":version": DB_VERSION,
                 ":business": self.business,
                 ":owners": self.owners,
                 ":street": self.street,
@@ -123,6 +128,7 @@ impl InfoEntry {
         con.execute(
             "REPLACE INTO info (
                 _lock,
+                version,
                 business,
                 owners,
                 street,
@@ -133,6 +139,7 @@ impl InfoEntry {
                 printer_model
             ) VALUES (
                 :_lock,
+                :version,
                 :business,
                 :owners,
                 :street,
@@ -144,6 +151,7 @@ impl InfoEntry {
             )",
             named_params! {
                 ":_lock": 0,
+                "version": DB_VERSION,
                 ":business": self.business,
                 ":owners": self.owners,
                 ":street": self.street,
@@ -424,6 +432,7 @@ impl Database {
         con.execute(
             "CREATE TABLE IF NOT EXISTS info (
                 _lock INTEGER NOT NULL PRIMARY KEY,
+                version INTEGER NOT NULL,
                 business TEXT NOT NULL,
                 owners TEXT NOT NULL,
                 street TEXT NOT NULL,
@@ -460,6 +469,28 @@ impl Database {
             )",
             (),
         )?;
+
+        // Query the DB version.
+        match con.query_row("SELECT * FROM info", (), |row| {
+            // If there is a row, but no version column, this is version 0.
+            Ok(row.get("version").unwrap_or(0))
+        }) {
+            // Validate the version if there is one.
+            Ok(version) => {
+                if version != DB_VERSION {
+                    panic!(
+                        "Version mismatch: expected {DB_VERSION}, got {version}. Please migrate!"
+                    );
+                }
+            }
+
+            Err(err) => {
+                // If there is no row yet, this is a fresh DB and we can set our own version.
+                if err != SQLiteError::QueryReturnedNoRows {
+                    panic!("Failed to query version: {err:?}")
+                }
+            }
+        };
 
         // The `info` table must never be empty.
         // Insert a dummy if necessary before loading it.
