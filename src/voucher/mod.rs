@@ -84,8 +84,8 @@ pub struct Builder {
     /// The components that have been added
     components: Vec<Component>,
 
-    /// A shared store for the text layout data
-    text_store: TextStore,
+    /// A shared context for the text layout data
+    text_ctx: TextContext,
 }
 
 impl Builder {
@@ -94,7 +94,7 @@ impl Builder {
             width,
             height,
             components: Vec::new(),
-            text_store: TextStore::new(),
+            text_ctx: TextContext::new(),
         }
     }
 
@@ -117,10 +117,8 @@ impl Builder {
             use Component::*;
 
             match component {
-                Text(text_component) => {
-                    text_component.render(&mut image, offset_y_pix, &mut self.text_store)
-                }
-                Image(image_component) => image_component.render(&mut image, offset_y_pix),
+                Text(comp) => comp.render(&mut image, offset_y_pix, &mut self.text_ctx),
+                Image(comp) => comp.render(&mut image, offset_y_pix),
             }
 
             offset_y_pix += component.height();
@@ -140,4 +138,4 @@ use img::Component as ImageComponent;
 pub mod text;
 
 pub use text::Builder as TextComponentBuilder;
-use text::{Component as TextComponent, Store as TextStore};
+use text::{Component as TextComponent, Context as TextContext};

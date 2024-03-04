@@ -3,32 +3,38 @@ use super::{Alignment, Builder as VoucherBuilder, Component as VoucherComponent,
 use std::ops::Range;
 
 use cosmic_text::{
-    Attrs, AttrsList, BufferLine, Color, Family, FontSystem, Style, SwashCache as RasterizerCache,
-    Weight, Wrap,
+    Align, Attrs, AttrsList, BidiParagraphs, Color, Family, FontSystem, LayoutLine, ShapeBuffer,
+    ShapeLine, Shaping, Style, SwashCache as RasterCache, Weight, Wrap,
 };
 use image::GrayImage;
 
-pub(super) struct Store {
+/// Line height = LINE_HEIGHT_FACTOR * font size
+const LINE_HEIGHT_FACTOR: f32 = 1.3;
+
+pub(super) struct Context {
     font_system: FontSystem,
-    text_lines: Vec<String>,
-    buffer_lines: Vec<BufferLine>,
-    rasterizer_cache: RasterizerCache,
+    scratch_buffer: ShapeBuffer,
+    lines: Vec<LayoutLine>,
+    raster_cache: RasterCache,
 }
 
-impl Store {
+impl Context {
     pub fn new() -> Self {
         Self {
             font_system: FontSystem::new(),
-            text_lines: Vec::new(),
-            buffer_lines: Vec::new(),
-            rasterizer_cache: RasterizerCache::new(),
+            scratch_buffer: ShapeBuffer::default(),
+            lines: Vec::new(),
+            raster_cache: RasterCache::new(),
         }
     }
 }
 
-pub struct Builder {
+pub struct Builder<'t, 'f> {
     /// The underlying voucher builder
     voucher: VoucherBuilder,
+
+    /// The text to render
+    text: &'t str,
 
     /// The spacing to apply to this component
     spacing: Spacing,
@@ -37,14 +43,10 @@ pub struct Builder {
     alignment: Alignment,
 
     /// The name of the font family
-    font_family: Option<String>,
+    font_family: Option<&'f str>,
 
     /// The font size (pixels)
     font_size: f32,
-
-    /// The line height, as defined in CSS (aka a factor that is multiplied on top of the font size).
-    /// Typical values are between 1.0 and 1.3.
-    line_height: f32,
 
     /// Do we render bold text?
     bold: bool,
@@ -53,25 +55,15 @@ pub struct Builder {
     italic: bool,
 }
 
-impl Builder {
-    fn new(mut voucher: VoucherBuilder, text: &str) -> Self {
-        // Break the text into lines and store them temporarily.
-        // We do not render from this data!
-        // The vector in the cache just prevents some additional memory allocations.
-        voucher.text_store.text_lines.clear();
-
-        voucher
-            .text_store
-            .text_lines
-            .extend(text.lines().map(String::from));
-
+impl<'t, 'f> Builder<'t, 'f> {
+    fn new(mut voucher: VoucherBuilder, text: &'t str) -> Self {
         Self {
             voucher,
+            text,
             spacing: Default::default(),
             alignment: Alignment::Left,
             font_family: None,
             font_size: 12.0,
-            line_height: 1.3,
             bold: false,
             italic: false,
         }
@@ -87,8 +79,8 @@ impl Builder {
         self
     }
 
-    pub fn font_family<S: ToString>(mut self, font_family: S) -> Self {
-        self.font_family = Some(font_family.to_string());
+    pub fn font_family(mut self, font_family: &'f str) -> Self {
+        self.font_family = Some(font_family);
         self
     }
 
@@ -104,13 +96,6 @@ impl Builder {
         self
     }
 
-    pub fn line_height(mut self, line_height: f32) -> Self {
-        assert!(line_height >= 0.0, "Line height must be non-negative.");
-        self.line_height = line_height;
-
-        self
-    }
-
     pub fn bold(mut self, bold: bool) -> Self {
         self.bold = bold;
         self
@@ -122,73 +107,106 @@ impl Builder {
     }
 
     pub fn finalize_text_component(mut self) -> VoucherBuilder {
-        // Return early if there is no text.
-        if self.voucher.text_store.text_lines.is_empty() {
-            return self.voucher;
-        }
+        // Obtain the context.
+        let ctx = &mut self.voucher.text_ctx;
 
         // Calculate the available line width and line height.
         // If one of them is degenerated, we return early.
-        let line_width = (self.voucher.width as f32) - self.spacing.horz();
-        let line_height = self.line_height * self.font_size;
+        let max_line_width = (self.voucher.width as f32) - self.spacing.horz();
+        let line_height = LINE_HEIGHT_FACTOR * self.font_size;
 
-        if (line_width <= 0.0) || (line_height <= 0.0) {
+        if (max_line_width <= 0.0) || (line_height <= 0.0) {
             return self.voucher;
         }
 
         // Build the attributes.
-        let attrs = Attrs::new()
-            .family(if let Some(font_family) = self.font_family.as_ref() {
-                Family::Name(font_family)
-            } else {
-                Family::SansSerif
-            })
-            .weight(if self.bold {
+        let attrs_list = {
+            let family = self.font_family.map_or(Family::SansSerif, Family::Name);
+
+            let weight = if self.bold {
                 Weight::BOLD
             } else {
                 Weight::NORMAL
-            })
-            .style(if self.italic {
+            };
+
+            let style = if self.italic {
                 Style::Italic
             } else {
                 Style::Normal
-            });
+            };
 
-        // Walk the lines of the component.
-        let buffer_lines_offset = self.voucher.text_store.buffer_lines.len();
-        let buffer_lines_count = self.voucher.text_store.text_lines.len();
-        let mut layout_lines_count = 0;
+            let attrs = Attrs::new().family(family).weight(weight).style(style);
+            AttrsList::new(attrs)
+        };
 
-        for line in self.voucher.text_store.text_lines.drain(..) {
-            // Perform the shaping and layout process on the line.
-            // Count how many layout lines we receive.
-            // They are stored inside a vector that is owned by the buffer line.
-            // Therefore, we don't have to layout again when it's rendering time.
-            let mut buffer_line = BufferLine::new(line, AttrsList::new(attrs));
+        // Break the text into bidi paragraphs.
+        let old_lines_count = ctx.lines.len();
 
-            layout_lines_count += buffer_line
-                .layout(
-                    &mut self.voucher.text_store.font_system,
-                    self.font_size,
-                    line_width,
-                    Wrap::Word,
-                )
-                .len();
+        for text_line in BidiParagraphs::new(self.text) {
+            // Shape the line.
+            let shape_line = ShapeLine::new_in_buffer(
+                &mut ctx.scratch_buffer,
+                &mut ctx.font_system,
+                text_line,
+                &attrs_list,
+                Shaping::Advanced,
+            );
 
-            self.voucher.text_store.buffer_lines.push(buffer_line);
+            // Perform layouting.
+            shape_line.layout_to_buffer(
+                &mut ctx.scratch_buffer,
+                self.font_size,
+                max_line_width,
+                Wrap::Word,
+                Some(Align::Left),
+                &mut ctx.lines,
+                None,
+            );
         }
+
+        // Count the layout lines we have just added.
+        // If there is not a single line we can fit, we should bail out.
+        let lines_range = old_lines_count..ctx.lines.len();
+
+        if lines_range.is_empty() {
+            return self.voucher;
+        }
+
+        // Walk the lines to determine their maximum width.
+        let mut line_width = 0.0f32;
+
+        for line in ctx.lines[lines_range.clone()].iter_mut() {
+            // The line *can* exceed our maximum width at this point:
+            // - Word wrapping might have failed (e.g. no spaces).
+            // - A single glyph might be wide enough to overshoot.
+            // In that case, we simply truncate the line until it fits.
+            // TODO: It would be nice to ellipsize :)
+            while line.w > max_line_width {
+                // If we fail here, the line is exceeded.
+                let Some(last_glyph) = line.glyphs.pop() else {
+                    break;
+                };
+
+                // Adapt the line width.
+                line.w -= last_glyph.w;
+            }
+
+            line_width = line_width.max(line.w);
+        }
+
+        // Calculate the total height of the component in pixels.
+        let height =
+            (self.spacing.vert() + ((lines_range.len() as f32) * line_height)).ceil() as u32;
 
         // Push the text component to the builder.
         // It contains all info to render the lines.
         let component = Component {
-            buffer_lines_range: buffer_lines_offset..(buffer_lines_offset + buffer_lines_count),
-            layout_lines_count,
+            height,
+            lines_range,
             offset_x: self.spacing.left,
             offset_y: self.spacing.top + self.font_size,
             line_width,
             line_height,
-            leading: (self.line_height - 1.0) * self.font_size,
-            vert_spacing: self.spacing.vert(),
             alignment: self.alignment,
         };
 
@@ -211,11 +229,11 @@ impl VoucherBuilder {
 }
 
 pub struct Component {
-    /// The range in the vector of buffer lines
-    buffer_lines_range: Range<usize>,
+    /// The total height of the component in pixels
+    height: u32,
 
-    /// The number of layout lines that is produced by the buffer lines
-    layout_lines_count: usize,
+    /// The range in the vector of layout lines
+    lines_range: Range<usize>,
 
     /// The X offset of all lines to render (aka `spacing.left`)
     offset_x: f32,
@@ -229,30 +247,16 @@ pub struct Component {
     /// The height of a line (aka `line_height` * `font_size`)
     line_height: f32,
 
-    /// The leading (aka `line_height - 1.0` * `font_size`)
-    leading: f32,
-
-    /// The vertical spacing
-    vert_spacing: f32,
-
     /// The alignment
     alignment: Alignment,
 }
 
 impl Component {
     pub fn height(&self) -> u32 {
-        // WIP: Account for Cosmic-Text #123 by incorporating one half of a line height.
-        // This will hopefully be fixed in the future!
-        // See here:
-        // https://github.com/pop-os/cosmic-text/issues/123
-        let fix_me_cosmic_text = 0.5 * self.line_height;
-
-        (self.vert_spacing + ((self.layout_lines_count as f32) * self.line_height) - self.leading
-            + fix_me_cosmic_text)
-            .ceil() as _
+        self.height
     }
 
-    pub(super) fn render(&self, image: &mut GrayImage, offset_y_pix: u32, store: &mut Store) {
+    pub(super) fn render(&self, image: &mut GrayImage, offset_y_pix: u32, ctx: &mut Context) {
         // Obtain the bounds of the image.
         let image_width_pix = image.width() as i32;
         let image_height_pix = image.height() as i32;
@@ -294,10 +298,10 @@ impl Component {
                 // This can fail if none of the swash sources we requested is available.
                 // But then it probably fails for every glyph ...
                 let Some(placement) = store
-                        .rasterizer_cache
-                        .get_image(&mut store.font_system, glyph.cache_key)
-                        .as_ref()
-                        .map(|image| image.placement)
+                    .raster_cache
+                    .get_image(&mut store.font_system, glyph.cache_key)
+                    .as_ref()
+                    .map(|image| image.placement)
                 else {
                     continue;
                 };
@@ -325,7 +329,7 @@ impl Component {
                 let base_left_pix = offset_x_pix + glyph.x_int;
                 let base_bottom_pix = offset_y_pix + glyph.y_int;
 
-                store.rasterizer_cache.with_pixels(
+                store.raster_cache.with_pixels(
                     &mut store.font_system,
                     glyph.cache_key,
                     Color::rgb(0x00, 0x00, 0x00),
