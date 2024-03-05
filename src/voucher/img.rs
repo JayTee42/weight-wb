@@ -70,7 +70,7 @@ impl Builder {
             image: self.image,
             offset_x_pix,
             offset_y_pix: self.spacing.top.round() as u32,
-            vert_spacing: self.spacing.vert().round() as u32,
+            vert_spacing_pix: self.spacing.vert().round() as u32,
         };
 
         self.voucher
@@ -102,24 +102,26 @@ pub struct Component {
     offset_y_pix: u32,
 
     /// The vertical spacing in pixels
-    vert_spacing: u32,
+    vert_spacing_pix: u32,
 }
 
 impl Component {
     pub fn height(&self) -> u32 {
-        self.vert_spacing + self.image.height()
+        self.vert_spacing_pix + self.image.height()
     }
 
     pub(super) fn render(&self, image: &mut GrayImage, offset_y_pix: u32) {
+        // Combine our vertical component offset and spacing.
+        let total_offset_y = offset_y_pix + self.offset_y_pix;
+
+        // Walk the pixels.
         for y in 0..self.image.height() {
             for x in 0..self.image.width() {
                 let pix = *self.image.get_pixel(x, y);
                 let x_pix = self.offset_x_pix + x;
-                let y_pix = offset_y_pix + self.offset_y_pix + y;
+                let y_pix = total_offset_y + y;
 
-                if (x_pix < image.width()) && (y_pix < image.height()) {
-                    image.put_pixel(x_pix, y_pix, pix);
-                }
+                image.put_pixel(x_pix, y_pix, pix);
             }
         }
     }

@@ -103,7 +103,7 @@ impl Builder {
         let height = self
             .components
             .iter()
-            .map(|c| c.height())
+            .map(Component::height)
             .sum::<u32>()
             .min(self.height.unwrap_or(u32::MAX)); // TODO: Upper height for continuous labels?
 
@@ -111,17 +111,17 @@ impl Builder {
         image.fill(0xff);
 
         // Render the components.
-        let mut offset_y_pix = 0;
+        let mut offset_y_px = 0;
 
         for component in &self.components {
             use Component::*;
 
             match component {
-                Text(comp) => comp.render(&mut image, offset_y_pix, &mut self.text_ctx),
-                Image(comp) => comp.render(&mut image, offset_y_pix),
+                Text(comp) => comp.render(&mut image, offset_y_px, &mut self.text_ctx),
+                Image(comp) => comp.render(&mut image, offset_y_px),
             }
 
-            offset_y_pix += component.height();
+            offset_y_px += component.height();
         }
 
         image
