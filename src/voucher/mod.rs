@@ -131,3 +131,66 @@ pub mod text;
 
 pub use text::Builder as TextComponentBuilder;
 use text::{Component as TextComponent, Context as TextContext};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{io::Reader as ImageReader, ImageFormat};
+
+    #[test]
+    fn realistic_voucher() {
+        let logo = ImageReader::open("logo.png")
+            .expect("Failed to load logo")
+            .decode()
+            .expect("Failed to decode logo");
+
+        Builder::new(400)
+            // Logo
+            .start_image_component(&logo)
+            .spacing(Spacing::horz_vert(20.0, 20.0))
+            .finalize_image_component()
+            // Product
+            .start_text_component("Rinderhack")
+            .spacing(Spacing::horz_vert(16.0, 16.0))
+            .font_size(50.0)
+            .alignment(Alignment::Center)
+            .bold(true)
+            .finalize_text_component()
+            // Weight
+            .start_text_component("Gewicht: 20 kg")
+            .spacing(Spacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Price
+            .start_text_component("Preis: 30,14 €")
+            .spacing(Spacing::horz_vert(16.0, 24.0))
+            .font_size(40.0)
+            .bold(true)
+            .finalize_text_component()
+            // Ingredients
+            .start_text_component("Zutaten: Rind, Fleisch, Wasser, Zucker, Salz, Vitamine")
+            .spacing(Spacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Additionals
+            .start_text_component("Kann Spuren von Nüssen enthalten")
+            .spacing(Spacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Storage
+            .start_text_component("Kühl lagern")
+            .spacing(Spacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Trailer
+            .start_text_component("... weitere Infos folgen!")
+            .spacing(Spacing::lrtb(8.0, 8.0, 48.0, 8.0))
+            .font_size(21.0)
+            .alignment(Alignment::Center)
+            .italic(true)
+            .finalize_text_component()
+            .build()
+            .save_with_format("test.png", ImageFormat::Png)
+            .expect("Failed to save test image");
+    }
+}
