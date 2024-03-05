@@ -48,7 +48,7 @@ impl Builder {
 
         // Downscale the image to the given width if it is above it.
         // This method keeps its aspect ratio.
-        if width_pix < self.image.width() {
+        if self.image.width() > width_pix {
             self.image = DynamicImage::from(self.image)
                 .resize(width_pix, u32::MAX, FilterType::CatmullRom)
                 .to_luma8();

@@ -78,9 +78,6 @@ pub struct Builder {
     /// The width of the voucher
     width: u32,
 
-    /// The height of the voucher (use `None` to grow it dynamically)
-    height: Option<u32>,
-
     /// The components that have been added
     components: Vec<Component>,
 
@@ -89,10 +86,9 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub fn new(width: u32, height: Option<u32>) -> Self {
+    pub fn new(width: u32) -> Self {
         Self {
             width,
-            height,
             components: Vec::new(),
             text_ctx: TextContext::new(),
         }
@@ -100,13 +96,9 @@ impl Builder {
 
     pub fn build(mut self) -> GrayImage {
         // Accumulate the total height.
-        let height = self
-            .components
-            .iter()
-            .map(Component::height)
-            .sum::<u32>()
-            .min(self.height.unwrap_or(u32::MAX)); // TODO: Upper height for continuous labels?
+        let height = self.components.iter().map(Component::height).sum::<u32>();
 
+        // Allocate the image and fill it with a white background.
         let mut image = GrayImage::new(self.width, height);
         image.fill(0xff);
 

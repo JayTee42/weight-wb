@@ -299,7 +299,7 @@ impl Component {
 
             let glyph_origin_y = total_offset_y
                 + ((idx as f32) * self.line_height)
-                + ((self.line_height + (line.max_ascent + line.max_descent)) / 2.0);
+                + ((self.line_height + line.max_ascent - line.max_descent) / 2.0);
 
             // Calculate the pixel positions of the line glyphs.
             ctx.glyphs.clear();

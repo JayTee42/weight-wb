@@ -467,7 +467,7 @@ impl App {
             info.business, info.owners, info.street, info.locality, info.phone, info.mail
         );
 
-        let voucher = VoucherBuilder::new(label.printable_dots_width, None)
+        let voucher = VoucherBuilder::new(label.printable_dots_width)
             // Logo
             .start_image_component(&logo)
             .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
