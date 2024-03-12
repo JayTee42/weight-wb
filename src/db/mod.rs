@@ -5,6 +5,14 @@ use rusqlite::{named_params, Connection, Error as SQLiteError, Result as SQLiteR
 
 const DB_VERSION: u32 = 1;
 
+fn non_empty_name(name: String) -> String {
+    if name.is_empty() {
+        String::from("Unbenanntes Produkt")
+    } else {
+        name
+    }
+}
+
 #[derive(Clone)]
 pub struct InfoEntry {
     pub business: String,
@@ -191,21 +199,13 @@ impl ProductEntry {
     ) -> Self {
         Self {
             id: None,
-            name,
+            name: non_empty_name(name),
             price_ct,
             is_kg_price,
             ingredients,
             additional_info,
             storage_temp,
             expiration_days,
-        }
-    }
-
-    pub fn name_not_empty(&self) -> &str {
-        if self.name.is_empty() {
-            "Unbenanntes Produkt"
-        } else {
-            &self.name
         }
     }
 
@@ -227,7 +227,7 @@ impl ProductEntry {
     fn load(row: &Row) -> SQLiteResult<Self> {
         Ok(Self {
             id: Some(row.get("id")?),
-            name: row.get("name")?,
+            name: non_empty_name(row.get("name")?),
             price_ct: row.get("price_ct")?,
             is_kg_price: row.get("is_kg_price")?,
             ingredients: row.get("ingredients")?,
@@ -361,7 +361,7 @@ impl SaleEntry {
     pub fn new(date: DateTime<Utc>, name: String, weight_kg: Option<f64>, price_ct: u64) -> Self {
         Self {
             date,
-            name,
+            name: non_empty_name(name),
             weight_kg,
             price_ct,
         }
@@ -374,7 +374,7 @@ impl SaleEntry {
             date: DateTime::parse_from_rfc2822(&date_rfc2822)
                 .expect("Invalid timestamp format (expected RFC 2822)")
                 .into(),
-            name: row.get("name")?,
+            name: non_empty_name(row.get("name")?),
             weight_kg: row.get("weight_kg")?,
             price_ct: row.get("price_ct")?,
         })

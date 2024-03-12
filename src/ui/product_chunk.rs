@@ -50,7 +50,7 @@ impl App {
             .products()
             .iter()
             .map(|product| {
-                ListItem::new(product.name_not_empty())
+                ListItem::new(product.name.as_str())
                     .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
             })
             .collect();

@@ -69,7 +69,7 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                product.name_not_empty(),
+                &product.name,
                 Style::default().fg(Color::DarkGray).bg(Color::Black),
             ),
         ]));
