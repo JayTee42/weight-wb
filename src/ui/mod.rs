@@ -10,7 +10,7 @@ use crate::{
 use std::error::Error;
 use std::io;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -131,9 +131,9 @@ impl App {
         self.printer = Printer::attach(model_filter);
 
         if self.printer.is_ok() {
-            self.reconnect_printer_date = self.now + Duration::seconds(120);
+            self.reconnect_printer_date = self.now + TimeDelta::try_seconds(120).unwrap();
         } else {
-            self.reconnect_printer_date = self.now + Duration::seconds(10);
+            self.reconnect_printer_date = self.now + TimeDelta::try_seconds(10).unwrap();
         }
 
         Ok(())
@@ -550,7 +550,7 @@ impl App {
         self.on_startup()?;
 
         // Track the time to provide the application with a tick.
-        let tick_rate = Duration::milliseconds(250);
+        let tick_rate = TimeDelta::try_milliseconds(250).unwrap();
         let mut last_tick = self.now;
 
         loop {
@@ -563,7 +563,7 @@ impl App {
 
             // Poll the terminal for events.
             // Make sure that we don't miss the next tick.
-            let timeout = (tick_rate - time_since_last_tick).max(Duration::zero());
+            let timeout = (tick_rate - time_since_last_tick).max(TimeDelta::zero());
 
             if event::poll(timeout.to_std().unwrap())? {
                 // Handle key events.

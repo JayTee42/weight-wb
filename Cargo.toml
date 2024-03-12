@@ -7,10 +7,10 @@ edition = "2021"
 
 [dependencies]
 bitflags = "2.4.2"
-chrono = "0.4.34"
+chrono = "0.4.35"
 cosmic-text = "0.11.2"
 crossterm = "0.27.0"
-image = { version = "0.24.9", default-features = false, features = ["png"] }
+image = { version = "0.25.0", default-features = false, features = ["png"] }
 rusb = "0.9.3"
 rusqlite = "0.31.0"
 serialport = "4.3.0"

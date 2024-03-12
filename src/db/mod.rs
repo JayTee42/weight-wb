@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Local, TimeDelta, Utc};
 use rusqlite::{named_params, Connection, Error as SQLiteError, Result as SQLiteResult, Row};
 
 const DB_VERSION: u32 = 1;
@@ -151,7 +151,7 @@ impl InfoEntry {
             )",
             named_params! {
                 ":_lock": 0,
-                "version": DB_VERSION,
+                ":version": DB_VERSION,
                 ":business": self.business,
                 ":owners": self.owners,
                 ":street": self.street,
@@ -206,8 +206,9 @@ impl ProductEntry {
     }
 
     pub fn expiration_date(&self) -> Option<DateTime<Local>> {
-        self.expiration_days
-            .map(|days| Local::now() + Duration::days(days as _))
+        self.expiration_days.map(|days| {
+            Local::now() + TimeDelta::try_days(days as _).expect("Expiration days out of bound")
+        })
     }
 
     pub fn expiration_date_formatted(&self) -> Option<String> {
