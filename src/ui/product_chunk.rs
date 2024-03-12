@@ -50,12 +50,8 @@ impl App {
             .products()
             .iter()
             .map(|product| {
-                ListItem::new(if product.name.is_empty() {
-                    "<Unbenanntes Produkt>"
-                } else {
-                    product.name.as_str()
-                })
-                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                ListItem::new(product.name_not_empty())
+                    .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
             })
             .collect();
 

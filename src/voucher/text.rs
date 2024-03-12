@@ -160,7 +160,7 @@ impl<'t, 'f> Builder<'t, 'f> {
                 &mut ctx.scratch_buffer,
                 self.font_size,
                 line_width,
-                Wrap::Word,
+                Wrap::WordOrGlyph,
                 Some(Align::Left),
                 &mut ctx.lines,
                 None,

@@ -56,12 +56,17 @@ impl App {
             let euro = weight_kg * euro_per_kg;
             let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
 
-            format!("{} {} für {}", weight_str, product.name, euro_str)
+            format!(
+                "{} {} für {}",
+                weight_str,
+                product.name_not_empty(),
+                euro_str
+            )
         } else {
             let euro = (product.price_ct as f64) / 100.0;
             let euro_str = format!("{:.2} €", euro).replacen('.', ",", 1);
 
-            format!("{} für {}", product.name, euro_str)
+            format!("{} für {}", product.name_not_empty(), euro_str)
         };
 
         let paragraph = Paragraph::new(vec![

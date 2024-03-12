@@ -473,7 +473,7 @@ impl App {
             .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
             .finalize_image_component()
             // Product
-            .start_text_component(&product.name)
+            .start_text_component(&product.name_not_empty())
             .spacing(VoucherSpacing::horz_vert(16.0, 16.0))
             .font_size(50.0)
             .alignment(VoucherAlignment::Center)
@@ -536,7 +536,12 @@ impl App {
         product: &ProductEntry,
         weight_kg: Option<f64>,
     ) -> Result<bool, Box<dyn Error>> {
-        let sale = SaleEntry::new(self.now, product.name.clone(), weight_kg, product.price_ct);
+        let sale = SaleEntry::new(
+            self.now,
+            String::from(product.name_not_empty()),
+            weight_kg,
+            product.price_ct,
+        );
         self.db.add_sale(&sale)?;
 
         Ok(true)

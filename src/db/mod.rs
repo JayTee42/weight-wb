@@ -201,6 +201,14 @@ impl ProductEntry {
         }
     }
 
+    pub fn name_not_empty(&self) -> &str {
+        if self.name.is_empty() {
+            "Unbenanntes Produkt"
+        } else {
+            &self.name
+        }
+    }
+
     pub fn storage_temp_formatted(&self) -> Option<String> {
         self.storage_temp.map(|temp| format!("{:.1}°C", temp))
     }
