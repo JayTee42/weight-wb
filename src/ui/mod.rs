@@ -18,7 +18,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use image::io::Reader as ImageReader;
+use image::{io::Reader as ImageReader, GrayImage, ImageFormat};
 
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -59,6 +59,7 @@ enum Navigation {
 struct Action {
     pub sale: bool,
     pub print: bool,
+    pub dump: bool,
 }
 
 #[derive(Clone)]
@@ -81,6 +82,7 @@ pub struct App {
     scales: Scales,
     printer: Result<Printer, AttachError>,
     reconnect_printer_date: DateTime<Utc>,
+    dump_voucher: bool,
     focus: Focus,
     popup: Option<Popup>,
     product_list_state: ListState,
@@ -179,14 +181,22 @@ impl App {
             0 => Action {
                 sale: true,
                 print: true,
+                dump: false,
             },
             1 => Action {
                 sale: true,
                 print: false,
+                dump: false,
             },
             2 => Action {
                 sale: false,
                 print: true,
+                dump: false,
+            },
+            3 => Action {
+                sale: false,
+                print: false,
+                dump: true,
             },
 
             _ => unreachable!(),
@@ -202,9 +212,10 @@ impl App {
     }
 
     fn select_next_action(&mut self) {
+        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
         let idx = self.action_list_state.selected().unwrap();
 
-        if idx < (3 - 1) {
+        if idx < (actions_count - 1) {
             self.action_list_state.select(Some(idx + 1));
         }
     }
@@ -336,6 +347,12 @@ impl App {
                             return Ok(());
                         }
 
+                        // Should we dump a voucher?
+                        if action.dump {
+                            self.dump_voucher(&product, weight_kg);
+                            return Ok(());
+                        }
+
                         // Show a success message.
                         self.show_message(
                             MessageType::Info,
@@ -362,6 +379,101 @@ impl App {
 
             _ => Ok(()),
         }
+    }
+
+    fn build_voucher(
+        &self,
+        product: &ProductEntry,
+        weight_kg: Option<f64>,
+        width: u32,
+    ) -> GrayImage {
+        // Calculate the price.
+        let (weight_str, price_ct) = if product.is_kg_price {
+            let weight_kg = weight_kg.expect("Product with kg price needs weight");
+            let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
+            let price_ct = weight_kg * (product.price_ct as f64);
+
+            (weight_str, price_ct)
+        } else {
+            (String::from("-"), product.price_ct as f64)
+        };
+
+        let price_str = format!("{:.2} €", price_ct / 100.0).replacen('.', ",", 1);
+
+        // Load the logo.
+        let logo = ImageReader::open("logo.png")
+            .expect("Failed to load logo")
+            .decode()
+            .expect("Failed to decode logo");
+
+        // Format the product parameters.
+        let storage_temp = product.storage_temp_formatted();
+        let mhd = product.expiration_date_formatted();
+
+        let storage = match (storage_temp, mhd) {
+            (None, None) => String::from(""),
+            (Some(temp), None) => format!("Lagerungstemperatur: {}", temp),
+            (None, Some(mhd)) => format!("Ungeöffnet mindestens haltbar bis: {}", mhd),
+            (Some(temp), Some(mhd)) => {
+                format!("Ungeöffnet bei {} mindestens haltbar bis: {}", temp, mhd)
+            }
+        };
+
+        // Build the trailer.
+        let info = self.db.info();
+
+        let trailer = format!(
+            "{} · {} · {}, {}, · {} · {}",
+            info.business, info.owners, info.street, info.locality, info.phone, info.mail
+        );
+
+        // Finally, construct the voucher.
+        VoucherBuilder::new(width)
+            // Logo
+            .start_image_component(&logo)
+            .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
+            .finalize_image_component()
+            // Product
+            .start_text_component(&product.name)
+            .spacing(VoucherSpacing::horz_vert(16.0, 16.0))
+            .font_size(50.0)
+            .alignment(VoucherAlignment::Center)
+            .bold(true)
+            .finalize_text_component()
+            // Weight
+            .start_text_component(&format!("Gewicht: {}", weight_str))
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Price
+            .start_text_component(&format!("Preis: {}", price_str))
+            .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
+            .font_size(40.0)
+            .bold(true)
+            .finalize_text_component()
+            // Ingredients
+            .start_text_component(&format!("Zutaten: {}", product.ingredients))
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Additionals
+            .start_text_component(&product.additional_info)
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Storage
+            .start_text_component(&storage)
+            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
+            .font_size(25.0)
+            .finalize_text_component()
+            // Trailer
+            .start_text_component(&trailer)
+            .spacing(VoucherSpacing::lrtb(8.0, 8.0, 48.0, 8.0))
+            .font_size(21.0)
+            .alignment(VoucherAlignment::Center)
+            .italic(true)
+            .finalize_text_component()
+            .build()
     }
 
     fn print_voucher(
@@ -416,7 +528,6 @@ impl App {
             }
         };
 
-        // Extract the print width.
         // At the moment, we only support continuous labels.
         if !matches!(label.ty, LabelType::Continuous { .. }) {
             // Show an error message.
@@ -428,91 +539,9 @@ impl App {
             return Ok(false);
         }
 
-        // Calculate the price.
-        let (weight_str, price_ct) = if product.is_kg_price {
-            let weight_kg = weight_kg.expect("Product with kg price needs weight");
-            let weight_str = format!("{:.3} kg", weight_kg).replacen('.', ",", 1);
-            let price_ct = weight_kg * (product.price_ct as f64);
-
-            (weight_str, price_ct)
-        } else {
-            (String::from("-"), product.price_ct as f64)
-        };
-
-        let price_str = format!("{:.2} €", price_ct / 100.0).replacen('.', ",", 1);
-
         // Build the voucher.
         // Use the width propagated by the label.
-        let logo = ImageReader::open("logo.png")
-            .expect("Failed to load logo")
-            .decode()
-            .expect("Failed to decode logo");
-
-        let storage_temp = product.storage_temp_formatted();
-        let mhd = product.expiration_date_formatted();
-
-        let storage = match (storage_temp, mhd) {
-            (None, None) => String::from(""),
-            (Some(temp), None) => format!("Lagerungstemperatur: {}", temp),
-            (None, Some(mhd)) => format!("Ungeöffnet mindestens haltbar bis: {}", mhd),
-            (Some(temp), Some(mhd)) => {
-                format!("Ungeöffnet bei {} mindestens haltbar bis: {}", temp, mhd)
-            }
-        };
-
-        let info = self.db.info();
-
-        let trailer = format!(
-            "{} · {} · {}, {}, · {} · {}",
-            info.business, info.owners, info.street, info.locality, info.phone, info.mail
-        );
-
-        let voucher = VoucherBuilder::new(label.printable_dots_width)
-            // Logo
-            .start_image_component(&logo)
-            .spacing(VoucherSpacing::horz_vert(20.0, 20.0))
-            .finalize_image_component()
-            // Product
-            .start_text_component(&product.name)
-            .spacing(VoucherSpacing::horz_vert(16.0, 16.0))
-            .font_size(50.0)
-            .alignment(VoucherAlignment::Center)
-            .bold(true)
-            .finalize_text_component()
-            // Weight
-            .start_text_component(&format!("Gewicht: {}", weight_str))
-            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
-            .font_size(25.0)
-            .finalize_text_component()
-            // Price
-            .start_text_component(&format!("Preis: {}", price_str))
-            .spacing(VoucherSpacing::horz_vert(16.0, 24.0))
-            .font_size(40.0)
-            .bold(true)
-            .finalize_text_component()
-            // Ingredients
-            .start_text_component(&format!("Zutaten: {}", product.ingredients))
-            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
-            .font_size(25.0)
-            .finalize_text_component()
-            // Additionals
-            .start_text_component(&product.additional_info)
-            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
-            .font_size(25.0)
-            .finalize_text_component()
-            // Storage
-            .start_text_component(&storage)
-            .spacing(VoucherSpacing::horz_vert(16.0, 12.0))
-            .font_size(25.0)
-            .finalize_text_component()
-            // Trailer
-            .start_text_component(&trailer)
-            .spacing(VoucherSpacing::lrtb(8.0, 8.0, 48.0, 8.0))
-            .font_size(21.0)
-            .alignment(VoucherAlignment::Center)
-            .italic(true)
-            .finalize_text_component()
-            .build();
+        let voucher = self.build_voucher(product, weight_kg, label.printable_dots_width);
 
         // Try to print it.
         if let Err(err) = printer.print(&voucher) {
@@ -540,6 +569,16 @@ impl App {
         self.db.add_sale(&sale)?;
 
         Ok(true)
+    }
+
+    fn dump_voucher(&self, product: &ProductEntry, weight_kg: Option<f64>) {
+        // TODO: Allow to configure the width.
+        if let Err(err) = self
+            .build_voucher(product, weight_kg, 720)
+            .save_with_format("voucher.png", ImageFormat::Png)
+        {
+            eprintln!("Failed to dump voucher: {err}");
+        }
     }
 
     fn run_in_terminal<B: Backend>(
@@ -672,11 +711,16 @@ impl App {
         self.popup = popup;
     }
 
-    pub fn run() -> Result<(), Box<dyn Error>> {
+    pub fn run(emulated_scales: bool, dump_voucher: bool) -> Result<(), Box<dyn Error>> {
         // Instantiate the app.
         let now = Utc::now();
         let db = Database::open_or_create("db.sqlite")?;
-        let scales = Scales::on_serial_port(&db.info().serial_port);
+
+        let scales = if emulated_scales {
+            Scales::emulated()
+        } else {
+            Scales::on_serial_port(&db.info().serial_port)
+        };
 
         let mut app = App {
             now,
@@ -684,6 +728,7 @@ impl App {
             scales,
             printer: Err(AttachError::NoPrinter),
             reconnect_printer_date: now,
+            dump_voucher,
             focus: Focus::Product,
             popup: None,
             product_list_state: Default::default(),

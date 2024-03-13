@@ -46,9 +46,17 @@ impl App {
         };
 
         // Split the block into details and actions.
+        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
+
         let vert_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+            .constraints(
+                [
+                    Constraint::Min(actions_count),
+                    Constraint::Length(actions_count),
+                ]
+                .as_ref(),
+            )
             .split(inner_chunk);
 
         let details_chunk = vert_chunks[0];
@@ -172,11 +180,15 @@ impl App {
         // Build list items for the actions.
         let item_style = Style::default().fg(Color::DarkGray).bg(Color::Black);
 
-        let items = vec![
+        let mut items = vec![
             ListItem::new("Verbuchen und Bon drucken").style(item_style),
             ListItem::new("Nur verbuchen").style(item_style),
             ListItem::new("Nur Bon drucken").style(item_style),
         ];
+
+        if self.dump_voucher {
+            items.push(ListItem::new("Bon dumpen").style(item_style));
+        }
 
         // Build and render the list.
         let list = List::new(items)

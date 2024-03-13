@@ -40,9 +40,11 @@ impl App {
         frame.render_widget(block, chunk);
 
         // Split the block into message and actions.
+        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
+
         let vert_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(2)].as_ref())
+            .constraints([Constraint::Min(actions_count), Constraint::Length(2)].as_ref())
             .split(inner_chunk);
 
         let message_chunk = vert_chunks[0];
@@ -64,7 +66,7 @@ impl App {
             format!("{} für {}", product.name, euro_str)
         };
 
-        let paragraph = Paragraph::new(vec![
+        let mut actions = vec![
             Spans::from(Span::styled(
                 sale_str,
                 Style::default().fg(Color::Gray).bg(Color::Black),
@@ -77,9 +79,18 @@ impl App {
                 format!("Bon drucken: {}", if action.print { "ja" } else { "nein" }),
                 Style::default().fg(Color::Gray).bg(Color::Black),
             )),
-        ])
-        .wrap(Wrap { trim: true })
-        .alignment(Alignment::Center);
+        ];
+
+        if self.dump_voucher {
+            actions.push(Spans::from(Span::styled(
+                format!("Bon dumpen: {}", if action.dump { "ja" } else { "nein" }),
+                Style::default().fg(Color::Gray).bg(Color::Black),
+            )));
+        }
+
+        let paragraph = Paragraph::new(actions)
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Center);
 
         frame.render_widget(paragraph, message_chunk);
 

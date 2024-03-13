@@ -86,6 +86,22 @@ impl Scales {
         }
     }
 
+    pub fn emulated() -> Self {
+        let guard_pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let guard_pair2 = Arc::clone(&guard_pair);
+
+        let weight = Arc::new(Mutex::new(Err(Error::NotOpenedYet)));
+        let weight2 = Arc::clone(&weight);
+
+        let runloop_handle = thread::spawn(move || Self::runloop_emulated(&guard_pair2.0, weight2));
+
+        Self {
+            runloop_handle: Some(runloop_handle),
+            guard_pair,
+            weight,
+        }
+    }
+
     pub fn weight(&self) -> WeightResult {
         self.weight.lock().unwrap().clone()
     }
@@ -232,6 +248,34 @@ impl Scales {
                     *weight.lock().unwrap() = Err(Error::FailedToParse);
                     return Ok(());
                 }
+            }
+        }
+    }
+
+    fn runloop_emulated(
+        guard: &Mutex<bool>,
+        weight: Arc<Mutex<WeightResult>>,
+    ) -> Result<(), AwakeError> {
+        let mut fake_weight = 42.0;
+
+        loop {
+            // Fake a value.
+            *weight.lock().unwrap() = Ok(fake_weight);
+
+            // Sleep (or break out of the loop).
+            for _ in 0..100 {
+                thread::sleep(Duration::from_millis(10));
+
+                if *guard.lock().unwrap() {
+                    return Err(AwakeError);
+                }
+            }
+
+            // Vary the value.
+            if fake_weight > 50.0 {
+                fake_weight = 42.0;
+            } else {
+                fake_weight += 0.1;
             }
         }
     }
