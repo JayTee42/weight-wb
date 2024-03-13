@@ -338,6 +338,9 @@ impl App {
                     panic!("Dialog is focused, but not present.");
                 };
 
+                // Back to the sale chunk (might be overridden by message).
+                self.focus = Focus::Sale;
+
                 match self.selected_dialog_action() {
                     DialogAction::Confirm => {
                         // Should we print a voucher?
@@ -353,7 +356,6 @@ impl App {
                         // Should we dump a voucher?
                         if action.dump {
                             self.dump_voucher(&product, weight_kg);
-                            return Ok(());
                         }
 
                         // Show a success message.
