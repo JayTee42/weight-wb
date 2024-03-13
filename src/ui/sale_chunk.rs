@@ -46,14 +46,12 @@ impl App {
         };
 
         // Split the block into details and actions.
-        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
-
         let vert_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    Constraint::Min(actions_count),
-                    Constraint::Length(actions_count),
+                    Constraint::Min(self.actions_count() as _),
+                    Constraint::Length(self.actions_count() as _),
                 ]
                 .as_ref(),
             )

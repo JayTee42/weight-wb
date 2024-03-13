@@ -91,6 +91,10 @@ pub struct App {
 }
 
 impl App {
+    fn actions_count(&self) -> usize {
+        3 + if self.dump_voucher { 1 } else { 0 }
+    }
+
     fn on_startup(&mut self) -> Result<(), Box<dyn Error>> {
         // Adjust the product index for the first time.
         self.reset_selected_product_idx();
@@ -212,10 +216,9 @@ impl App {
     }
 
     fn select_next_action(&mut self) {
-        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
         let idx = self.action_list_state.selected().unwrap();
 
-        if idx < (actions_count - 1) {
+        if idx < (self.actions_count() - 1) {
             self.action_list_state.select(Some(idx + 1));
         }
     }
@@ -663,7 +666,7 @@ impl App {
         if let Some(popup) = &popup {
             // Crop a centered rectangle to render the popup into.
             let (percent_x, percent_y, min_y) = match popup {
-                Popup::Dialog { .. } => (70, 15, 7),
+                Popup::Dialog { .. } => (70, 15, 1 + (self.actions_count() as u16) + 2 + 1),
                 Popup::Message { .. } => (70, 10, 3),
             };
 

@@ -40,11 +40,15 @@ impl App {
         frame.render_widget(block, chunk);
 
         // Split the block into message and actions.
-        let actions_count = 3 + if self.dump_voucher { 1 } else { 0 };
-
         let vert_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(actions_count), Constraint::Length(2)].as_ref())
+            .constraints(
+                [
+                    Constraint::Min(self.actions_count() as _),
+                    Constraint::Length(2),
+                ]
+                .as_ref(),
+            )
             .split(inner_chunk);
 
         let message_chunk = vert_chunks[0];
