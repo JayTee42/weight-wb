@@ -53,51 +53,98 @@ impl Display for AwakeError {
 
 impl std::error::Error for AwakeError {}
 
+/// A guard to notify the runloop that it should exit
+struct Guard(Mutex<bool>, Condvar);
+
+impl Guard {
+    /// Block on the guard until it is cancelled or `timeout_duration` runs out.
+    /// In case of cancel, `Err(AwakeError)` is returned.
+    fn wait(&self, timeout_duration: Duration) -> Result<(), AwakeError> {
+        // Block up to `timeout_duration` on the cvar.
+        let (_, wait_result) = self
+            .1
+            .wait_timeout_while(
+                self.0.lock().unwrap(),
+                timeout_duration,
+                |&mut should_exit| !should_exit,
+            )
+            .unwrap();
+
+        // If no timeout has happened, we have been awoken.
+        // In that case, we leave the runloop.
+        if wait_result.timed_out() {
+            Ok(())
+        } else {
+            Err(AwakeError)
+        }
+    }
+
+    /// Like `wait()`, but just check the guard without blocking.
+    fn check(&self) -> Result<(), AwakeError> {
+        if *self.0.lock().unwrap() {
+            Err(AwakeError)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cancel(&self) {
+        *self.0.lock().unwrap() = true;
+        self.1.notify_one();
+    }
+}
+
+impl Default for Guard {
+    fn default() -> Self {
+        Self(Mutex::new(false), Condvar::new())
+    }
+}
+
 /// The timeout to wait until a new write / read is issued.
 const IO_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// The timeout to wait until a new port access is issued.
 const PORT_TIMEOUT: Duration = Duration::from_secs(10);
 
-type GuardPair = Arc<(Mutex<bool>, Condvar)>;
+/// The result of a weight poll
 pub type WeightResult = Result<f64, Error>;
 
 pub struct Scales {
     runloop_handle: Option<thread::JoinHandle<Result<(), AwakeError>>>,
-    guard_pair: GuardPair,
+    guard: Arc<Guard>,
     weight: Arc<Mutex<WeightResult>>,
 }
 
 impl Scales {
     pub fn on_serial_port(port_path: &str) -> Self {
-        let guard_pair = Arc::new((Mutex::new(false), Condvar::new()));
-        let guard_pair2 = Arc::clone(&guard_pair);
+        let guard = Arc::new(Guard::default());
+        let guard2 = Arc::clone(&guard);
 
         let weight = Arc::new(Mutex::new(Err(Error::NotOpenedYet)));
         let weight2 = Arc::clone(&weight);
 
         let port_path = String::from(port_path);
-        let runloop_handle = thread::spawn(|| Self::runloop(port_path, guard_pair2, weight2));
+        let runloop_handle = thread::spawn(move || Self::runloop(port_path, &guard2, &weight2));
 
         Self {
             runloop_handle: Some(runloop_handle),
-            guard_pair,
+            guard,
             weight,
         }
     }
 
     pub fn emulated() -> Self {
-        let guard_pair = Arc::new((Mutex::new(false), Condvar::new()));
-        let guard_pair2 = Arc::clone(&guard_pair);
+        let guard = Arc::new(Guard::default());
+        let guard2 = Arc::clone(&guard);
 
         let weight = Arc::new(Mutex::new(Err(Error::NotOpenedYet)));
         let weight2 = Arc::clone(&weight);
 
-        let runloop_handle = thread::spawn(move || Self::runloop_emulated(&guard_pair2.0, weight2));
+        let runloop_handle = thread::spawn(move || Self::runloop_emulated(&guard2, &weight2));
 
         Self {
             runloop_handle: Some(runloop_handle),
-            guard_pair,
+            guard,
             weight,
         }
     }
@@ -108,15 +155,12 @@ impl Scales {
 
     fn runloop(
         port_path: String,
-        guard_pair: GuardPair,
-        weight: Arc<Mutex<WeightResult>>,
+        guard: &Guard,
+        weight: &Mutex<WeightResult>,
     ) -> Result<(), AwakeError> {
-        let (guard, cvar) = &*guard_pair;
-        let weight = &*weight;
-
         loop {
             // Try to open the port.
-            let port = Self::open_port(&port_path, guard, cvar, weight)?;
+            let port = Self::open_port(&port_path, guard, weight)?;
 
             // Yay, we have an open port.
             // Try to perform IO with it.
@@ -129,8 +173,7 @@ impl Scales {
 
     fn open_port(
         port_path: &str,
-        guard: &Mutex<bool>,
-        cvar: &Condvar,
+        guard: &Guard,
         weight: &Mutex<WeightResult>,
     ) -> Result<Box<dyn SerialPort>, AwakeError> {
         loop {
@@ -149,18 +192,9 @@ impl Scales {
                 Err(err) => *weight.lock().unwrap() = Err(err.into()),
             }
 
-            // Wait the given timeout on the condvar.
-            let (_, wait_result) = cvar
-                .wait_timeout_while(guard.lock().unwrap(), PORT_TIMEOUT, |&mut should_exit| {
-                    !should_exit
-                })
-                .unwrap();
-
-            // If no timeout has happened, we have been awoken.
-            // In that case, we leave the runloop.
-            if !wait_result.timed_out() {
-                return Err(AwakeError);
-            }
+            // Wait the given timeout on the guard.
+            // If it fires, we have been cancelled and leave the runloop.
+            guard.wait(PORT_TIMEOUT)?;
 
             // Otherwise, we restart the loop and try to open the port again.
         }
@@ -168,18 +202,9 @@ impl Scales {
 
     fn perform_io(
         mut port: Box<dyn SerialPort>,
-        guard: &Mutex<bool>,
+        guard: &Guard,
         weight: &Mutex<WeightResult>,
     ) -> Result<(), AwakeError> {
-        // Use this closure to test if we should awake from the runloop.
-        let awake = || {
-            if *guard.lock().unwrap() {
-                Err(AwakeError)
-            } else {
-                Ok(())
-            }
-        };
-
         loop {
             // Send the info request.
             if let Err(err) = port.write_all(&[0x04, 0x05]) {
@@ -187,7 +212,7 @@ impl Scales {
                 return Ok(());
             }
 
-            awake()?;
+            guard.check()?;
 
             // Read the result.
             let mut info_response = [0x00u8; 1];
@@ -197,7 +222,7 @@ impl Scales {
                 return Ok(());
             }
 
-            awake()?;
+            guard.check()?;
 
             // Send the weight request.
             if let Err(err) = port.write_all(&[0x13]) {
@@ -205,7 +230,7 @@ impl Scales {
                 return Ok(());
             }
 
-            awake()?;
+            guard.check()?;
 
             // Read the result.
             let mut weight_response = [0x00u8; 45];
@@ -215,7 +240,7 @@ impl Scales {
                 return Ok(());
             }
 
-            awake()?;
+            guard.check()?;
 
             // Extract the sign.
             let sign = match weight_response[14] {
@@ -249,27 +274,22 @@ impl Scales {
                     return Ok(());
                 }
             }
+
+            // Just to prevent a busy loop ... probably unnecessary
+            // because the serial port induces blocking ...
+            guard.wait(Duration::from_millis(1))?;
         }
     }
 
-    fn runloop_emulated(
-        guard: &Mutex<bool>,
-        weight: Arc<Mutex<WeightResult>>,
-    ) -> Result<(), AwakeError> {
+    fn runloop_emulated(guard: &Guard, weight: &Mutex<WeightResult>) -> Result<(), AwakeError> {
         let mut fake_weight = 42.0;
 
         loop {
             // Fake a value.
             *weight.lock().unwrap() = Ok(fake_weight);
 
-            // Sleep (or break out of the loop).
-            for _ in 0..100 {
-                thread::sleep(Duration::from_millis(10));
-
-                if *guard.lock().unwrap() {
-                    return Err(AwakeError);
-                }
-            }
+            // Wait a second on the guard.
+            guard.wait(Duration::from_secs(1))?;
 
             // Vary the value.
             if fake_weight > 50.0 {
@@ -283,16 +303,8 @@ impl Scales {
 
 impl Drop for Scales {
     fn drop(&mut self) {
-        // Set the exit flag and issue the condvar.
-        let (guard, cvar) = &*self.guard_pair;
-        let mut should_exit = guard.lock().unwrap();
-
-        *should_exit = true;
-        drop(should_exit);
-
-        cvar.notify_one();
-
-        // Wait for the runloop to come down.
+        // Cancel the guard and wait for the runloop to come down.
+        self.guard.cancel();
         _ = self.runloop_handle.take().unwrap().join().unwrap();
     }
 }
