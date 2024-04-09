@@ -287,7 +287,7 @@ impl App {
             Focus::Sale => {
                 // If there is no product or weight, we exit early.
                 // Because we must cache the product in the confirmation dialog, it must be cloned.
-                let Some(product) = self.selected_product().map(Clone::clone) else {
+                let Some(product) = self.selected_product().cloned() else {
                     return Ok(());
                 };
 

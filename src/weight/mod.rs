@@ -61,7 +61,7 @@ impl Guard {
     /// In case of cancel, `Err(AwakeError)` is returned.
     fn wait(&self, timeout_duration: Duration) -> Result<(), AwakeError> {
         // Block up to `timeout_duration` on the cvar.
-        let (_, wait_result) = self
+        let (lock, wait_result) = self
             .1
             .wait_timeout_while(
                 self.0.lock().unwrap(),
@@ -69,6 +69,8 @@ impl Guard {
                 |&mut should_exit| !should_exit,
             )
             .unwrap();
+
+        drop(lock);
 
         // If no timeout has happened, we have been awoken.
         // In that case, we leave the runloop.
